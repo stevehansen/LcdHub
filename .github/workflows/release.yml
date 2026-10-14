@@ -7,10 +7,13 @@ on:
 
 permissions:
   contents: write
+  id-token: write # signs in to Azure for code signing, without a stored secret
 
 jobs:
   release:
     runs-on: windows-latest
+    # Holds the signing variables, and its federated credential in Azure only trusts this environment.
+    environment: release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -34,8 +37,38 @@ jobs:
           }
           New-Item -ItemType Directory artifacts/hub | Out-Null
           Copy-Item bin/Publish/AOT/LcdHub.exe, README.md, LICENSE artifacts/hub
-          Compress-Archive artifacts/hub/* "LcdHub-$version-win-x64.zip"
-          Compress-Archive artifacts/samples/* "LcdHub-samples-$version.zip"
+
+      # Signing runs once the release environment has its variables (Azure Artifact Signing);
+      # until then releases go out unsigned, as before.
+      - name: Azure login
+        if: vars.SIGNING_PROFILE != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign
+        if: vars.SIGNING_PROFILE != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\artifacts
+          files-folder-filter: exe
+          files-folder-recursive: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Check signatures
+        if: vars.SIGNING_PROFILE != ''
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem artifacts -Recurse -Filter *.exe | Get-AuthenticodeSignature | Where-Object Status -ne 'Valid'
+          $bad | Format-Table Path, Status, StatusMessage -AutoSize
+          if ($bad) { exit 1 }
 
       - name: Create release
         shell: pwsh
@@ -43,6 +76,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')
+          Compress-Archive artifacts/hub/* "LcdHub-$version-win-x64.zip"
+          Compress-Archive artifacts/samples/* "LcdHub-samples-$version.zip"
           $notes = "**LcdHub-$version-win-x64.zip** is the hub, a native exe that needs nothing installed. **LcdHub-samples-$version.zip** holds the sample apps, which need the [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)."
           $flags = @('--generate-notes', '--notes', $notes)
           if ("${{ github.ref_name }}".Contains('-')) { $flags += '--prerelease' }

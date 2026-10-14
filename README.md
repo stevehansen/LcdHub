@@ -215,7 +215,9 @@ dotnet run --project .\Tests\LcdHub.Tests.csproj   # rotation rules + wire forma
 
 Pushing a tag such as `v0.1.0` runs [the release workflow](.github/workflows/release.yml): it
 runs the tests, builds the native exe and the samples, and publishes a GitHub release with both
-zips. A tag with a suffix (`v0.2.0-beta`) makes a pre-release.
+zips. A tag with a suffix (`v0.2.0-beta`) makes a pre-release. The exes are signed with Azure
+Artifact Signing when the repo's `release` environment has the signing variables; a fork without
+them still gets unsigned releases.
 
 ## License
 
