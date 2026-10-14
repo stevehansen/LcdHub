@@ -1,0 +1,15 @@
+<Project>
+  <!-- Every sample is a console app that compiles the hub's client and the shared helpers. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\Client\LcdHubClient.cs" Link="LcdHubClient.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Common\*.cs" LinkBase="Common" />
+  </ItemGroup>
+</Project>

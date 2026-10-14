@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>LcdHub</RootNamespace>
+    <AssemblyName>LcdHub</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SelfContained>false</SelfContained>
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>LCD Hub</Product>
+    <Description>Drives Thermalright USB LCDs for any app that sends it frames</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs;samples\**\*.cs" />
+    <InternalsVisibleTo Include="LcdHub.Tests" />
+  </ItemGroup>
+
+</Project>

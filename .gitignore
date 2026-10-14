@@ -1,0 +1,33 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+TestResults/
+
+# Visual Studio / IDE
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# Logs and coverage
+*.log
+*.coverage
+*.coveragexml
+coverage/
+
+# OS noise
+Thumbs.db
+Desktop.ini
+
+.claude/settings.local.json

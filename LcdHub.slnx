@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/LcdHub.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Stocks/Stocks.csproj" />
+    <Project Path="samples/Uptime/Uptime.csproj" />
+  </Folder>
+  <Project Path="LcdHub.csproj" />
+</Solution>
