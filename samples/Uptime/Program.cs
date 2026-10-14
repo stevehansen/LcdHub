@@ -19,13 +19,25 @@ if (Environment.GetEnvironmentVariable("PHARE_PROJECT_ID") is { Length: > 0 } pr
 await Sample.Run("Uptime", TimeSpan.FromMinutes(1), Down, (c, down) =>
 {
     if (down.Count == 0) return null;
-    int title = c.Size(0.11), row = Math.Min(c.Size(0.09), (c.Height - 2 * title) / Math.Max(1, down.Count));
-    c.Box(0, 0, c.Width, c.Height, 0x300808);
-    c.Text(down.Count == 1 ? "1 monitor down" : $"{down.Count} monitors down", c.Width / 2, title / 2, title, 0xFF5050, Canvas.Align.Center, bold: true);
-    for (int i = 0; i < down.Count; i++)
+    int offline = down.Count(d => d.Status == "offline"), partial = down.Count - offline;
+    string Monitors(int n) => n == 1 ? "1 monitor" : $"{n} monitors";
+    var headline = offline > 0 && partial > 0 ? $"{offline} down  ·  {partial} partly down"
+        : offline > 0 ? $"{Monitors(offline)} down" : $"{Monitors(partial)} partly down";
+    uint Color(string status) => status == "offline" ? 0xFF5050u : 0xFFB040u;
+
+    // Headline and rows as one block, centred; rows shrink when there are many.
+    int title = c.Size(0.17), gap = title / 2, margin = c.Size(0.08);
+    int row = Math.Min(c.Size(0.13), (c.Height - 2 * margin - title - gap) / down.Count);
+    int y = (c.Height - (title + gap + row * down.Count)) / 2;
+    c.Box(0, 0, c.Width, c.Height, offline > 0 ? 0x300808u : 0x2A1C04u);
+    c.Text(headline, c.Width / 2, y, title, Color(offline > 0 ? "offline" : "partial"), Canvas.Align.Center, bold: true);
+    y += title + gap;
+    foreach (var (name, status) in down)
     {
-        var (name, status) = down[i];
-        c.Text($"{name}  ·  {status}", c.Width / 2, title * 2 + i * row, row * 4 / 5, status == "partial" ? 0xFFB040u : 0xFFFFFFu, Canvas.Align.Center);
+        // The headline already says it when every monitor is in the same state.
+        var line = offline > 0 && partial > 0 ? $"{name}  ·  {(status == "offline" ? "down" : "partly down")}" : name;
+        c.Text(line,c.Width / 2, y, row * 4 / 5, Color(status), Canvas.Align.Center);
+        y += row;
     }
     return true;
 });
