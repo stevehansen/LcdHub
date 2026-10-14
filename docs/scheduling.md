@@ -32,7 +32,7 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 ## Invariants & rules
 
 - **The pick precedence lives only in `Rotation.Pick`.** In order: display off → blank, locked →
-  Today, alerting producers, the pinned producer, feed, then the rotation of the producers plus Today. Never
+  Today, alerting producers, producers showing a toast, the pinned producer, feed, then the rotation of the producers plus Today. Never
   special-case a pick in `Hub` or the menu. Owned by `Rotation.cs`.
 - **A takeover beats everything.** While locked, no producer frame and no feed frame reaches a
   panel. Display off sends black rather than stopping, because a panel left alone lights up its
@@ -45,7 +45,11 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 - **A pin holds only while its producer has a frame there.** Otherwise the panel rotates as usual.
   Pin and feed exclude each other: choosing one clears the other (`Hub.TogglePin`, `Hub.SetFeed`),
   and **Rotate apps** clears both.
-- **A pick stays for a whole interval** unless it drops out of the pool.
+- **A toast shows over a pin and a feed, never over an alert,** and only until its lifetime runs
+  out. While alerts rule a panel, an alerting producer shows its alert, not its toast (`Hub.Content`).
+- **A pick stays for its whole turn** unless it drops out of the pool: the producer's own
+  `app_seconds`, or `rotate_seconds`. `shownFor: TimeSpan.MaxValue` asks `Pick` what follows
+  once the turn is over, which is how Next is told.
 - **A feed pauses, it isn't stopped,** while an alert or takeover holds the panel.
   `PresentFeedFrame` presents only under the gate and only while `Pick == Rotation.Feed`, so a
   late feed frame can't overwrite the switch away.

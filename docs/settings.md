@@ -2,13 +2,16 @@
 
 LCD Hub keeps its settings in `%APPDATA%\LcdHub\settings.json`. The tray menu writes most of
 them. A few (the weather place, the accent colour, launched apps) are only set by editing the
-file. **Restart the hub after editing it by hand.**
+file.
 
 - **Tray ▸ Settings ▸ Open settings file** writes the file with every key and its current
   value, then opens it.
+- **Tray ▸ Settings ▸ Reload settings** applies your edits at once, every key included (the
+  weather place, launched apps, a panel's video), and says what's wrong with them, if anything.
+  A file that isn't valid JSON changes nothing, so fix it and reload again.
 - The file points at [`settings.schema.json`](../settings.schema.json) through `$schema`, so
   editors such as VS Code check it as you type, complete keys and explain each one on hover.
-- If the hub finds a problem at start (an unknown key, a bad value, a launch exe that doesn't
+- If the hub finds a problem at start or on reload (an unknown key, a bad value, a launch exe that doesn't
   exist), **Settings** in the tray shows ⚠ and lists it. Bad values fall back to their defaults;
   unknown keys are kept in the file but ignored.
 - A file that isn't valid JSON is copied to `settings.json.bad` before the hub writes anything,
@@ -35,6 +38,8 @@ file. **Restart the hub after editing it by hand.**
 | Key | Default | Meaning |
 |---|---|---|
 | `rotate_seconds` | `10` | How long each app stays on a panel before the rotation moves on. Tray: **Rotate every**. |
+| `app_seconds` | `{}` | Apps, by name, that stay on a panel for their own number of seconds instead of `rotate_seconds`, e.g. `{ "Stocks": 30 }`. Tray: **Rotate every** ▸ *app*. |
+| `night_brightness` | `50` | Percent the panels dim to between dusk and dawn, fading over the 40 minutes after sunset and before sunrise. Sun times come from the weather (`today.weather_location`), else 7:00 and 19:00. `100` is off. Tray: **Dim at night**. |
 | `today` | | What Today shows (below). |
 | `style` | | The look every app is asked to share (below). |
 | `launch` | `[]` | Apps the hub starts and keeps running (below). |
@@ -46,7 +51,7 @@ The same on every panel. Tray: **Today**.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `weather_location` | none | A place name for [Open-Meteo](https://open-meteo.com) to look up, e.g. `"Antwerp"`. Without one there's no weather. Restart after changing it. |
+| `weather_location` | none | A place name for [Open-Meteo](https://open-meteo.com) to look up, e.g. `"Antwerp"`. Without one there's no weather. |
 | `weather` | `true` | Show the weather (needs `weather_location`). |
 | `date` | `true` | Show the date under the time. |
 | `holidays` | `true` | Show a holiday's name under the date, on the day. |
@@ -76,7 +81,8 @@ An app that exits is started again after 5 seconds. If it keeps exiting within a
 wait doubles each time, up to 5 minutes. The apps close when the hub does, even if the hub
 crashes. An exe that is already running (for example from its own *Start with Windows*) is
 left alone and only started once it has exited. Apps inherit the hub's environment, so set
-keys such as `PHARE_API_KEY` as user environment variables. Restart after changing the list.
+keys such as `PHARE_API_KEY` as user environment variables. On a reload, new entries start and
+the apps of removed entries are closed; unchanged ones keep running.
 
 ### `panels`
 

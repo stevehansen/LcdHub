@@ -29,6 +29,17 @@ public struct RECT
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public unsafe struct PAINTSTRUCT
+{
+    public IntPtr Hdc;
+    public int FErase;
+    public RECT RcPaint;
+    public int FRestore;
+    public int FIncUpdate;
+    public fixed byte RgbReserved[32];
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct POINT
 {
     public int X;
@@ -158,6 +169,12 @@ public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 public static class Win32Consts
 {
     public const uint WS_POPUP = 0x80000000;
+    public const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
+    public const uint WS_VISIBLE = 0x10000000;
+    public const uint WM_PAINT = 0x000F;
+    public const uint WM_ERASEBKGND = 0x0014;
+    public const int CW_USEDEFAULT = unchecked((int)0x80000000);
+    public const uint SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004;
     public const uint WS_EX_TOOLWINDOW = 0x00000080;
     public const int GWL_EXSTYLE = -20;
 
@@ -193,6 +210,7 @@ public static class Win32Consts
     public const uint MB_OK = 0x0;
     public const uint MB_ICONERROR = 0x10;
     public const uint MB_ICONWARNING = 0x30;
+    public const uint MB_ICONINFORMATION = 0x40;
 
     // Menus
     public const uint MF_STRING = 0x0;
@@ -410,6 +428,28 @@ internal static partial class NativeMethods
 
     [LibraryImport(USER32)]
     public static partial int FillRect(IntPtr hdc, ref RECT rect, IntPtr hbrush);
+
+    [LibraryImport(USER32)]
+    public static partial IntPtr BeginPaint(IntPtr hwnd, out PAINTSTRUCT ps);
+
+    [LibraryImport(USER32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool EndPaint(IntPtr hwnd, in PAINTSTRUCT ps);
+
+    [LibraryImport(USER32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool InvalidateRect(IntPtr hwnd, IntPtr rect, [MarshalAs(UnmanagedType.Bool)] bool erase);
+
+    [LibraryImport(USER32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AdjustWindowRectEx(ref RECT rect, uint style, [MarshalAs(UnmanagedType.Bool)] bool menu, uint exStyle);
+
+    [LibraryImport(USER32)]
+    public static partial uint GetDpiForWindow(IntPtr hwnd);
+
+    [LibraryImport(USER32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmGetWindowAttribute(IntPtr hwnd, uint dwAttribute, out int pvAttribute, int cbAttribute);

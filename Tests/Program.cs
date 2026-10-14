@@ -55,13 +55,17 @@ var stream = new MemoryStream();
 LcdHubWire.Write(stream, LcdHubWire.Frame("0416:5302", true, pixels));
 LcdHubWire.Write(stream, LcdHubWire.Frame("x", false, [1, 2]));
 stream.Position = 0;
-var (id, alert, back) = LcdHubWire.ParseFrame(LcdHubWire.Read(stream)!.Value.Body);
-Check(id == "0416:5302" && alert && back.SequenceEqual(pixels), "a full frame round-trips");
-var (id2, alert2, back2) = LcdHubWire.ParseFrame(LcdHubWire.Read(stream)!.Value.Body);
-Check(id2 == "x" && !alert2 && back2.SequenceEqual([1u, 2u]), "messages stay framed back to back");
+var full = LcdHubWire.ParseFrame(LcdHubWire.Read(stream)!.Value.Body);
+Check(full.PanelId == "0416:5302" && full.Alert && !full.Toast && full.LifetimeMs == 0 && full.Pixels.SequenceEqual(pixels), "a full frame round-trips");
+var small = LcdHubWire.ParseFrame(LcdHubWire.Read(stream)!.Value.Body);
+Check(small.PanelId == "x" && !small.Alert && small.Pixels.SequenceEqual([1u, 2u]), "messages stay framed back to back");
 Check(LcdHubWire.Read(stream) is null, "clean end of stream reads null");
-var (_, _, empty) = LcdHubWire.ParseFrame(LcdHubWire.Read(new MemoryStream(LcdHubWire.Frame("x", false, [])))!.Value.Body);
-Check(empty.Length == 0, "an empty frame (withdraw) round-trips");
+Check(LcdHubWire.ParseFrame(LcdHubWire.Read(new MemoryStream(LcdHubWire.Frame("x", false, [])))!.Value.Body).Pixels.Length == 0,
+    "an empty frame (withdraw) round-trips");
+var toast = LcdHubWire.ParseFrame(LcdHubWire.Read(new MemoryStream(LcdHubWire.Frame("x", false, [7, 8], toast: true, lifetimeMs: 5000)))!.Value.Body);
+Check(toast.Toast && toast.LifetimeMs == 5000 && toast.Pixels.SequenceEqual([7u, 8u]), "a toast keeps its lifetime ahead of the pixels");
+Check(LcdHubWire.Frame("x", true, [1, 2]).Length == LcdHubWire.Frame("x", true, [1, 2], lifetimeMs: 0).Length,
+    "a frame without a lifetime is byte for byte what a v2 hub reads");
 
 var style = new LcdHubStyle(true, 0xF3F3F3, 0x1A1A1A, 0x0078D4);
 Check(LcdHubWire.ParseStyle(LcdHubWire.Read(new MemoryStream(LcdHubWire.Style(style)))!.Value.Body) == style, "style round-trips");
@@ -81,6 +85,35 @@ var huge = new byte[] { 0xFF, 0xFF, 0xFF, 0x7F, 3 };
 threw = false;
 try { LcdHubWire.Read(new MemoryStream(huge)); } catch (IOException) { threw = true; }
 Check(threw, "an absurd length is refused");
+
+// ---- toasts ----
+Offer Toast(string name) => new(name, false, true);
+Check(P([A("a"), Toast("b")], "a", early) == "b", "a toast shows at once");
+Check(P([A("a"), Toast("b")], "a", early, pin: "a") == "b", "over a pinned app");
+Check(P([A("a"), Toast("b")], "a", early, feed: true) == "b", "and over a feed");
+Check(P([Alert("a"), Toast("b")], "a", early) == "a", "but not over an alert");
+Check(P([A("a"), Toast("b")], "b", early, locked: true) == Rotation.Today, "nor while locked");
+
+// ---- per-app turns ----
+var own = new Dictionary<string, TimeSpan> { ["a"] = TimeSpan.FromSeconds(30) };
+Check(Pick([A("a"), A("b")], null, false, false, false, false, "a", late, interval, own) == "a", "an app with its own interval stays longer");
+Check(Pick([A("a"), A("b")], null, false, false, false, false, "a", TimeSpan.FromSeconds(30), interval, own) == "b", "and moves on after it");
+Check(Pick([A("a"), A("b")], null, false, false, false, false, "b", late, interval, own) == "a", "others keep the shared interval");
+Check(Pick([A("a"), A("b")], null, false, false, false, false, "a", TimeSpan.MaxValue, interval, own) == "b", "MaxValue ends any turn");
+Check(HubSettings.Parse("""{ "app_seconds": { "x": 0, "y": 20 } }""", out _) is { Problems.Count: 1 } ownSettings
+      && !ownSettings.AppSeconds.ContainsKey("x") && ownSettings.AppSeconds["y"] == 20, "a bad app_seconds entry is reported and dropped");
+
+// ---- night dimming ----
+var day = new DateTime(2026, 6, 1);
+DateTime? rise = day.AddHours(6), set = day.AddHours(21);
+Check(Theme.Daylight(day.AddHours(12), rise, set) == 1, "full brightness by day");
+Check(Theme.Daylight(day.AddHours(21).AddMinutes(20), rise, set) is > 0.4 and < 0.6, "halfway through the twilight after sunset");
+Check(Theme.Daylight(day.AddHours(23), rise, set) == 0, "dark at night");
+Check(Theme.Daylight(day.AddHours(2), rise, set) == 0, "dark after midnight");
+Check(Theme.Daylight(day.AddHours(5).AddMinutes(50), rise, set) is > 0.7 and < 0.8, "brightening before sunrise");
+Check(Theme.Daylight(day.AddHours(18), null, null) == 1 && Theme.Daylight(day.AddHours(20), null, null) == 0, "7-to-7 without sun times");
+Check(HubSettings.Parse("""{ "night_brightness": 150 }""", out _) is { NightBrightness: HubSettings.DefaultNightBrightness, Problems.Count: 1 },
+    "night_brightness out of range is reported and reset");
 
 // ---- settings ----
 var good = HubSettings.Parse("""{ "rotate_seconds": 15, "style": { "mode": "light", "accent": "#112233" } }""", out var unreadable);

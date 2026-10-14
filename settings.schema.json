@@ -8,6 +8,8 @@
   "properties": {
     "$schema": { "type": "string", "description": "Lets your editor validate this file and explain each key. Rewritten on every save." },
     "rotate_seconds": { "type": "integer", "minimum": 1, "default": 10, "description": "How long each app stays on a panel before the rotation moves on (tray: Rotate every)." },
+    "app_seconds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 }, "description": "Apps, by name, that stay on a panel for their own number of seconds instead of rotate_seconds (tray: Rotate every > app)." },
+    "night_brightness": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50, "description": "Percent the panels dim to between dusk and dawn, fading over the 40 minutes after sunset and before sunrise (tray: Dim at night). 100 is off." },
     "today": {
       "type": "object",
       "description": "What Today shows, the same on every panel (tray: Today).",

@@ -66,6 +66,7 @@ internal sealed class LaunchSettings
 internal sealed class HubSettings
 {
     public const int DefaultRotateSeconds = 10;
+    public const int DefaultNightBrightness = 50;
     public const string SchemaUrl = "https://raw.githubusercontent.com/stevehansen/LcdHub/main/settings.schema.json";
     public const string HelpUrl = "https://github.com/stevehansen/LcdHub/blob/main/docs/settings.md";
 
@@ -73,6 +74,10 @@ internal sealed class HubSettings
     [JsonPropertyName("$schema")] public string? Schema { get; set; }
 
     [JsonPropertyName("rotate_seconds")] public int RotateSeconds { get; set; } = DefaultRotateSeconds;
+    /// <summary>Apps, by name, that stay on a panel for their own number of seconds instead of rotate_seconds.</summary>
+    [JsonPropertyName("app_seconds")] public Dictionary<string, int> AppSeconds { get; set; } = new();
+    /// <summary>Percent the panels dim to between dusk and dawn; 100 leaves them alone.</summary>
+    [JsonPropertyName("night_brightness")] public int NightBrightness { get; set; } = DefaultNightBrightness;
     [JsonPropertyName("today")] public TodaySettings Today { get; set; } = new();
     [JsonPropertyName("style")] public StyleSettings Style { get; set; } = new();
     [JsonPropertyName("launch")] public List<LaunchSettings> Launch { get; set; } = new();
@@ -95,7 +100,8 @@ internal sealed class HubSettings
     /// Never fails: an unreadable file is copied to settings.json.bad before anything can save
     /// defaults over it, and every problem found is in <see cref="Problems"/>.
     /// </summary>
-    public static HubSettings Load()
+    /// <param name="unreadable">The file couldn't be read or parsed, so this is all defaults.</param>
+    public static HubSettings Load(out bool unreadable)
     {
         string? json = null, readError = null;
         try
@@ -103,7 +109,8 @@ internal sealed class HubSettings
             if (File.Exists(FilePath)) json = File.ReadAllText(FilePath);
         }
         catch (IOException ex) { readError = ex.Message; }
-        var s = Parse(json, out var unreadable);
+        var s = Parse(json, out unreadable);
+        unreadable |= readError is not null;
         if (unreadable)
         {
             try { File.Copy(FilePath, FilePath + ".bad", overwrite: true); }
@@ -148,6 +155,16 @@ internal sealed class HubSettings
         {
             Problems.Add($"{Strings.SettingsBadValue}: rotate_seconds = {RotateSeconds}");
             RotateSeconds = DefaultRotateSeconds;
+        }
+        foreach (var (app, seconds) in AppSeconds.Where(a => a.Value < 1).ToList())
+        {
+            Problems.Add($"{Strings.SettingsBadValue}: app_seconds.{app} = {seconds}");
+            AppSeconds.Remove(app);
+        }
+        if (NightBrightness is < 0 or > 100)
+        {
+            Problems.Add($"{Strings.SettingsBadValue}: night_brightness = {NightBrightness}");
+            NightBrightness = DefaultNightBrightness;
         }
         if (Style.Mode is not (HubStyle.System or HubStyle.Dark or HubStyle.Light))
             Problems.Add($"{Strings.SettingsBadValue}: style.mode = \"{Style.Mode}\"");

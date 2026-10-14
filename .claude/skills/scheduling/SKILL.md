@@ -7,7 +7,7 @@ description: Prime on the LcdHub scheduling domain before working on it: Hub, Pa
 
 **Canonical spec:** [`docs/scheduling.md`](../../../docs/scheduling.md). Read it for depth: entities, all invariants, key files, gotchas. Terms of record: `UBIQUITOUS_LANGUAGE.md` § Choosing what a panel shows.
 
-This domain decides each panel's **Pick**: blank, Today, an alerting producer, the pinned producer, the feed, or the rotation. It hands the result to `LcdPanel.Present` (panels) and gets frames from `Hub.Offer` (producer-protocol).
+This domain decides each panel's **Pick**: blank, Today, an alerting producer, a toast, the pinned producer, the feed, or the rotation. It hands the result to `LcdPanel.Present` (panels) and gets frames from `Hub.Offer` (producer-protocol).
 
 ## Core invariants (get these right)
 
@@ -15,7 +15,8 @@ This domain decides each panel's **Pick**: blank, Today, an alerting producer, t
 - **Takeover beats everything.** Locked shows Today, and display off sends black, never nothing.
 - **Today is the floor.** A panel never falls back to the vendor logo while the hub runs.
 - **Feeds pause, not stop.** Their frames are presented under `_gate`, and only while `Pick == Rotation.Feed`.
-- **Clone producer frames before `Present`.**
+- **Toasts come right after alerts:** over a pin and a feed, until their lifetime ends. Frames with a lifetime expire in `Hub.ExpireFrames`.
+- **`Present` keeps the array and never changes it,** so producer frames go in uncloned and must not change afterwards.
 - **Pipe threads only store frames and post a refresh.** Everything else runs on the UI thread.
 
 ## Key files

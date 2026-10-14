@@ -20,6 +20,8 @@
 | **Producer name** | The name a producer gives in its hello; the key used for hiding it on a panel | id, title |
 | **Frame** | One complete top-down BGRX picture at exactly a panel's size, from a producer | image, bitmap, picture, screen |
 | **Alert** | A flag on a frame asking the hub to show it ahead of the rotation | priority, urgent, focus |
+| **Toast** | A frame shown at once over the rotation, a pin and a feed (not an alert) for a set time, then gone; the producer's ordinary frame stays | notification, popup, flash |
+| **Lifetime** | How long the hub keeps a frame before dropping it as if withdrawn (`validFor`, or a toast's duration) | TTL, timeout, expiry |
 | **Withdraw** | Sending an empty frame: the producer has nothing for that panel until its next frame (`Clear`) | hide, remove |
 | **Launched producer** | A producer the hub starts with itself and restarts when it exits (`launch` in settings) | plugin, service, child |
 | **Style** | The dark or light look and colours the hub asks every producer to draw in | theme, palette, skin |
@@ -31,7 +33,7 @@
 | Term | Definition | Aliases to avoid |
 |---|---|---|
 | **Rotation** | Cycling a panel through its pool, each entry staying for one interval | carousel, switching, template |
-| **Rotation interval** | How long one entry stays on a panel before the rotation moves on | rotate seconds, dwell |
+| **Rotation interval** | How long one entry stays on a panel before the rotation moves on; a producer can have its own (`app_seconds`) | rotate seconds, dwell |
 | **Offer** | A producer's newest frame for a panel, counted as a rotation candidate (with its alert flag) | candidate, entry |
 | **Pool** | The offers a panel rotates among right now: the alerting ones if any, otherwise all visible ones plus Today | queue, playlist |
 | **Pin** | A producer kept on one panel instead of rotating ("Keep showing" in the menu). Only alerts and takeovers interrupt it, and it counts only while that producer has a frame there | focus, lock, sticky |
@@ -47,7 +49,7 @@
 - The **Hub** owns zero or more **Panels**. Each **Panel** has exactly one **Link** at a time, or none while reconnecting.
 - A **Producer** holds at most one **Frame** per **Panel**, which is its **Offer** for that panel.
 - A **Panel** has at most one **Feed**, and a **Feed** belongs to exactly one **Panel**.
-- The **Pick** is chosen in this order: **Takeover**, then **Alert** **Offers**, then the **Pin**, then **Feed**, then **Rotation** of the **Pool**. A **Panel** has a **Pin** or a **Feed**, never both.
+- The **Pick** is chosen in this order: **Takeover**, then **Alert** **Offers**, then **Toasts**, then the **Pin**, then **Feed**, then **Rotation** of the **Pool**. A **Panel** has a **Pin** or a **Feed**, never both.
 
 ## Example dialogue
 

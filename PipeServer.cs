@@ -48,8 +48,7 @@ internal static class PipeServer
             while (LcdHubWire.Read(pipe) is { } message)
             {
                 if (message.Type != LcdHubWire.MsgFrame) continue;
-                var (panelId, alert, pixels) = LcdHubWire.ParseFrame(message.Body);
-                Hub.Offer(producer, panelId, alert, pixels);
+                Hub.Offer(producer, LcdHubWire.ParseFrame(message.Body));
             }
         }
         catch (Exception ex) when (ex is IOException or ArgumentOutOfRangeException or ObjectDisposedException)

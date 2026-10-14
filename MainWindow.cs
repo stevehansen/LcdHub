@@ -13,11 +13,15 @@ internal static class MainWindow
     private const string StartupRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string StartupRegistryKey = "LcdHub";
     private static readonly int[] RotateChoices = [5, 10, 15, 30, 60];
+    // Night brightness, percent; 100 is off.
+    private static readonly int[] DimChoices = [100, 70, 50, 30];
     private const int MaxPanels = 4, MaxProducers = 40, MaxWindows = 40;
 
     // Menu ids: global ones below 1000; per panel 1000 + index*200 + item.
     private const int IdRotateFirst = 10, IdStartup = 20, IdExit = 30, IdTodayFirst = 40, IdStyleFirst = 50;
-    private const int IdSettingsOpen = 60, IdSettingsHelp = 61, IdSettingsProblems = 62;
+    private const int IdSettingsOpen = 60, IdSettingsHelp = 61, IdSettingsProblems = 62, IdSettingsReload = 63, IdDimFirst = 70, IdPreview = 80;
+    // Per app: base + producer index * stride + 0 (like the others) or 1 + a RotateChoices index.
+    private const int IdAppSecondsBase = 400, IdAppSecondsStride = 10;
     private static readonly string[] StyleModes = [HubStyle.System, HubStyle.Dark, HubStyle.Light];
     private const int IdPanelBase = 1000, IdPanelStride = 200;
     private const int ItemRotate = 0, ItemToday = 1, ItemVideo = 2, ItemProducer = 10, ItemPin = 50, ItemWindow = 100;
@@ -191,6 +195,7 @@ internal static class MainWindow
             NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)CreatePanelMenu(slot, i),
                 $"{slot.Panel.Width}×{slot.Panel.Height}");
         }
+        if (_menuSlots.Count > 0) NativeMethods.AppendMenuW(menu, Win32Consts.MF_STRING, (UIntPtr)IdPreview, Strings.ShowPreview);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
 
         var today = NativeMethods.CreatePopupMenu();
@@ -213,7 +218,24 @@ internal static class MainWindow
         for (int i = 0; i < RotateChoices.Length; i++)
             NativeMethods.AppendMenuW(rotate, Checked(Hub.RotateSeconds == RotateChoices[i]), (UIntPtr)(IdRotateFirst + i),
                 $"{RotateChoices[i]} {Strings.SecondsSuffix}");
+        if (_menuProducers.Count > 0) NativeMethods.AppendMenuW(rotate, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
+        for (int p = 0; p < _menuProducers.Count; p++)
+        {
+            var own = Hub.AppSeconds(_menuProducers[p]);
+            var app = NativeMethods.CreatePopupMenu();
+            var first = IdAppSecondsBase + p * IdAppSecondsStride;
+            NativeMethods.AppendMenuW(app, Checked(own is null), (UIntPtr)first, Strings.LikeTheOthers);
+            for (int i = 0; i < RotateChoices.Length; i++)
+                NativeMethods.AppendMenuW(app, Checked(own == RotateChoices[i]), (UIntPtr)(first + 1 + i), $"{RotateChoices[i]} {Strings.SecondsSuffix}");
+            NativeMethods.AppendMenuW(rotate, Win32Consts.MF_POPUP | Checked(own is not null), (UIntPtr)(nuint)app,
+                MenuText(own is null ? _menuProducers[p] : $"{_menuProducers[p]}: {own} {Strings.SecondsSuffix}"));
+        }
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)rotate, Strings.RotateEvery);
+        var dim = NativeMethods.CreatePopupMenu();
+        for (int i = 0; i < DimChoices.Length; i++)
+            NativeMethods.AppendMenuW(dim, Checked(Hub.NightBrightness == DimChoices[i]), (UIntPtr)(IdDimFirst + i),
+                DimChoices[i] == 100 ? Strings.DimOff : $"{DimChoices[i]}%");
+        NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)dim, Strings.DimAtNight);
         var settings = NativeMethods.CreatePopupMenu();
         var problems = Hub.SettingsProblems.Count;
         if (problems > 0)
@@ -222,6 +244,7 @@ internal static class MainWindow
             NativeMethods.AppendMenuW(settings, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
         }
         NativeMethods.AppendMenuW(settings, Win32Consts.MF_STRING, (UIntPtr)IdSettingsOpen, Strings.OpenSettings);
+        NativeMethods.AppendMenuW(settings, Win32Consts.MF_STRING, (UIntPtr)IdSettingsReload, Strings.ReloadSettings);
         NativeMethods.AppendMenuW(settings, Win32Consts.MF_STRING, (UIntPtr)IdSettingsHelp, Strings.SettingsHelp);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)settings,
             problems > 0 ? $"⚠ {Strings.Settings}" : Strings.Settings);
@@ -282,6 +305,13 @@ internal static class MainWindow
             Hub.RotateSeconds = RotateChoices[id - IdRotateFirst];
             return;
         }
+        if (id >= IdAppSecondsBase && id < IdAppSecondsBase + _menuProducers.Count * IdAppSecondsStride)
+        {
+            var choice = (id - IdAppSecondsBase) % IdAppSecondsStride;
+            if (choice <= RotateChoices.Length)
+                Hub.SetAppSeconds(_menuProducers[(id - IdAppSecondsBase) / IdAppSecondsStride], choice == 0 ? null : RotateChoices[choice - 1]);
+            return;
+        }
         if (id >= IdTodayFirst && id < IdTodayFirst + 5)
         {
             var o = Hub.TodayOptions;
@@ -294,6 +324,11 @@ internal static class MainWindow
                 case 4: o.Effects = !o.Effects; break;
             }
             Hub.TodayChanged();
+            return;
+        }
+        if (id >= IdDimFirst && id < IdDimFirst + DimChoices.Length)
+        {
+            Hub.NightBrightness = DimChoices[id - IdDimFirst];
             return;
         }
         if (id >= IdStyleFirst && id < IdStyleFirst + StyleModes.Length)
@@ -310,9 +345,18 @@ internal static class MainWindow
             case IdSettingsHelp:
                 Open(HubSettings.HelpUrl);
                 return;
+            case IdPreview:
+                Preview.Open();
+                return;
+            case IdSettingsReload:
+                Hub.ReloadSettings();
+                if (Hub.SettingsProblems.Count == 0)
+                    NativeMethods.MessageBoxW(hwnd, Strings.SettingsReloaded, Strings.Settings, Win32Consts.MB_OK | Win32Consts.MB_ICONINFORMATION);
+                else
+                    ShowSettingsProblems(hwnd);
+                return;
             case IdSettingsProblems:
-                NativeMethods.MessageBoxW(hwnd, string.Join("\n\n", Hub.SettingsProblems) + "\n\n" + Strings.SettingsProblemsHint,
-                    Strings.SettingsProblems, Win32Consts.MB_OK | Win32Consts.MB_ICONWARNING);
+                ShowSettingsProblems(hwnd);
                 return;
         }
         if (id == IdStartup)
@@ -354,6 +398,10 @@ internal static class MainWindow
     }
 
     /// <summary>Opens a file or URL with its default app; a .json without one opens in Notepad.</summary>
+    private static void ShowSettingsProblems(IntPtr hwnd) =>
+        NativeMethods.MessageBoxW(hwnd, string.Join("\n\n", Hub.SettingsProblems) + "\n\n" + Strings.SettingsProblemsHint,
+            Strings.SettingsProblems, Win32Consts.MB_OK | Win32Consts.MB_ICONWARNING);
+
     private static void Open(string target)
     {
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true }); }

@@ -1,30 +1,56 @@
+using System.Collections.Concurrent;
 using LcdHub.Client;
 
 namespace LcdHub;
 
 /// <summary>A connected app. Its frames are written by its pipe thread, under the hub's gate.</summary>
-internal sealed class Producer(string name, Action<byte[]> send)
+internal sealed class Producer
 {
-    public string Name { get; } = name;
-    // Panel id → the newest frame for it.
+    // A pipe write waits until the app reads, and an app may not read for a while (busy,
+    // hung, or a client without a reader thread). Messages queue here and a thread of the
+    // producer's own writes them, so the hub never waits on an app while holding its gate.
+    private readonly BlockingCollection<byte[]> _outbox = new();
+
+    public Producer(string name, Action<byte[]> write)
+    {
+        Name = name;
+        new Thread(() =>
+        {
+            try { foreach (var message in _outbox.GetConsumingEnumerable()) write(message); }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
+        }) { IsBackground = true, Name = $"Producer writer {name}" }.Start();
+    }
+
+    public string Name { get; }
+    // Panel id → the newest frame for it, and the newest toast, which shows over it until it expires.
     public readonly Dictionary<string, Frame> Frames = new();
+    public readonly Dictionary<string, Frame> Toasts = new();
+
+    /// <summary>The toast on this panel if there is one, else the ordinary frame.</summary>
+    public Frame? FrameFor(string panelId) => Toasts.GetValueOrDefault(panelId) ?? Frames.GetValueOrDefault(panelId);
     // Panel id → the visibility last sent; a panel missing here is Next, as the client assumes.
     public readonly Dictionary<string, LcdHubVisibility> Told = new();
 
-    /// <summary>Best effort: a producer that has gone is reaped by its own pipe thread.</summary>
+    /// <summary>Never blocks. Best effort: a producer that has gone is reaped by its own pipe thread.</summary>
     public void Send(byte[] message)
     {
-        try { send(message); }
-        catch (IOException) { }
-        catch (ObjectDisposedException) { }
+        try { _outbox.Add(message); }
+        catch (InvalidOperationException) { } // closed
     }
+
+    /// <summary>Ends the writer thread once it has written what's queued.</summary>
+    public void Close() => _outbox.CompleteAdding();
 }
 
 /// <summary>One picture from a producer. Compared by reference: a new frame is a new object.</summary>
-internal sealed class Frame(uint[] pixels, bool alert)
+/// <param name="expiresAt">Environment.TickCount64 when the hub drops it, or 0 for never.</param>
+internal sealed class Frame(uint[] pixels, bool alert, bool toast = false, long expiresAt = 0)
 {
     public uint[] Pixels { get; } = pixels;
     public bool Alert { get; } = alert;
+    public bool Toast { get; } = toast;
+    public long ExpiresAt { get; } = expiresAt;
 }
 
 /// <summary>What Today looks like: redrawn when the minute, the weather or the options change.</summary>
@@ -66,10 +92,10 @@ internal static class Hub
     public static void Start(IntPtr hwnd)
     {
         _hwnd = hwnd;
-        _settings = HubSettings.Load();
+        _settings = HubSettings.Load(out _);
         _style = HubStyle.Current(_settings.Style);
         WeatherSource.Start(_settings.Today.WeatherLocation, PostRefresh);
-        Launcher.Start(_settings.Launch);
+        Launcher.Apply(_settings.Launch);
         Tick();
     }
 
@@ -88,6 +114,7 @@ internal static class Hub
     {
         SyncPanels();
         SyncStyle();
+        SyncBrightness();
         Refresh();
     }
 
@@ -122,23 +149,38 @@ internal static class Hub
     public static void Disconnect(Producer producer)
     {
         lock (_gate) { _producers.Remove(producer); }
+        producer.Close();
         Diagnose.Log($"hub: {producer.Name} disconnected");
         PostRefresh();
     }
 
-    public static void Offer(Producer producer, string panelId, bool alert, uint[] pixels)
+    public static void Offer(Producer producer, LcdHubWire.FrameMessage m)
     {
         lock (_gate)
         {
-            var slot = _slots.Find(s => s.Id == panelId);
+            var slot = _slots.Find(s => s.Id == m.PanelId);
             if (slot is null) return;
+            var frames = m.Toast ? producer.Toasts : producer.Frames;
             // An empty frame withdraws: the producer has nothing to show there for now.
-            if (pixels.Length == 0) producer.Frames.Remove(panelId);
+            if (m.Pixels.Length == 0) frames.Remove(m.PanelId);
             // A frame drawn for the wrong size (the panel has just been swapped) is dropped.
-            else if (pixels.Length == slot.Panel.Width * slot.Panel.Height) producer.Frames[panelId] = new Frame(pixels, alert);
+            else if (m.Pixels.Length == slot.Panel.Width * slot.Panel.Height)
+                frames[m.PanelId] = new Frame(m.Pixels, m.Alert, m.Toast, m.LifetimeMs > 0 ? Environment.TickCount64 + m.LifetimeMs : 0);
             else return;
         }
         PostRefresh();
+    }
+
+    /// <summary>Drops frames and toasts whose lifetime has run out. Under the gate.</summary>
+    private static void ExpireFrames(long now)
+    {
+        foreach (var p in _producers)
+            foreach (var frames in (Dictionary<string, Frame>[])[p.Frames, p.Toasts])
+                foreach (var (panelId, f) in frames.Where(f => f.Value.ExpiresAt != 0 && f.Value.ExpiresAt <= now).ToList())
+                {
+                    frames.Remove(panelId);
+                    Diagnose.Log($"hub: {p.Name}'s {(f.Toast ? "toast" : "frame")} on {panelId} expired");
+                }
     }
 
     private static void PostRefresh()
@@ -157,21 +199,23 @@ internal static class Hub
         Interlocked.Exchange(ref _refreshPosted, 0);
         var now = Environment.TickCount64;
         var interval = TimeSpan.FromSeconds(_settings.RotateSeconds);
+        var own = _settings.AppSeconds.ToDictionary(a => a.Key, a => TimeSpan.FromSeconds(a.Value));
         var clock = DateTime.Now;
         var today = new TodayKey(clock.ToString("yyyyMMddHHmm"), WeatherSource.Current, _todayVersion);
         lock (_gate)
         {
+            ExpireFrames(now);
             foreach (var slot in _slots)
             {
                 var settings = _settings.Panels.GetValueOrDefault(slot.Id);
                 var offers = new List<Rotation.Offer>();
                 foreach (var p in _producers.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
-                    if (p.Frames.TryGetValue(slot.Id, out var f) && settings?.Hidden.Contains(p.Name) != true)
-                        offers.Add(new Rotation.Offer(p.Name, f.Alert));
+                    if (p.FrameFor(slot.Id) is not null && settings?.Hidden.Contains(p.Name) != true)
+                        offers.Add(new Rotation.Offer(p.Name, p.Frames.GetValueOrDefault(slot.Id)?.Alert == true, p.Toasts.ContainsKey(slot.Id)));
 
                 var switched = false;
                 var pick = Rotation.Pick(offers, settings?.Pinned, settings?.Today ?? false, slot.Feed is not null, _locked, _displayOff,
-                    slot.Pick, TimeSpan.FromMilliseconds(now - slot.PickedAt), interval);
+                    slot.Pick, TimeSpan.FromMilliseconds(now - slot.PickedAt), interval, own);
                 if (pick != slot.Pick)
                 {
                     Diagnose.Log($"hub: {slot.Id} shows {pick.TrimStart('\0')}");
@@ -180,7 +224,7 @@ internal static class Hub
                 if (slot.Feed is { } feed) feed.Paused = pick != Rotation.Feed;
                 // Whatever would follow if this turn ended now.
                 var next = Rotation.Pick(offers, settings?.Pinned, settings?.Today ?? false, slot.Feed is not null, _locked, _displayOff,
-                    pick, interval, interval);
+                    pick, TimeSpan.MaxValue, interval, own);
                 TellVisibility(slot.Id, settings, pick, next);
 
                 object? content = pick switch
@@ -188,7 +232,7 @@ internal static class Hub
                     Rotation.Feed => null,
                     Rotation.Blank => Rotation.Blank,
                     Rotation.Today => today,
-                    _ => _producers.Find(p => p.Name == pick)!.Frames[slot.Id],
+                    _ => Content(_producers.Find(p => p.Name == pick)!, slot.Id, offers.Exists(o => o.Alert)),
                 };
                 if (content is null) { slot.LastSent = null; continue; } // the feed draws for itself
                 if (Equals(content, slot.LastSent)) continue;
@@ -205,6 +249,10 @@ internal static class Hub
         }
     }
 
+    /// <summary>A producer's alert while alerts rule the panel, else its toast over its ordinary frame.</summary>
+    private static Frame Content(Producer p, string panelId, bool alerting) =>
+        alerting ? p.Frames[panelId] : p.FrameFor(panelId)!;
+
     /// <summary>
     /// Lets each producer skip drawing what nobody will see: Shown while on the panel, Next while
     /// up next or before its first frame here (so it can join), Hidden otherwise. Under the gate.
@@ -215,7 +263,7 @@ internal static class Hub
         {
             var visibility = p.Name == pick ? LcdHubVisibility.Shown
                 : _locked || _displayOff || settings?.Hidden.Contains(p.Name) == true ? LcdHubVisibility.Hidden
-                : p.Name == next || !p.Frames.ContainsKey(panelId) ? LcdHubVisibility.Next
+                : p.Name == next || p.FrameFor(panelId) is null ? LcdHubVisibility.Next
                 : LcdHubVisibility.Hidden;
             if (p.Told.GetValueOrDefault(panelId, LcdHubVisibility.Next) == visibility) continue;
             p.Told[panelId] = visibility;
@@ -249,7 +297,11 @@ internal static class Hub
             lock (_gate)
             {
                 _slots.Remove(slot);
-                foreach (var p in _producers) p.Frames.Remove(slot.Id);
+                foreach (var p in _producers)
+                {
+                    p.Frames.Remove(slot.Id);
+                    p.Toasts.Remove(slot.Id);
+                }
             }
             slot.Panel.Dispose();
             changed = true;
@@ -290,6 +342,19 @@ internal static class Hub
         Diagnose.Log($"hub: style now {(style.Light ? "light" : "dark")}, accent {style.Accent:X6}");
     }
 
+    /// <summary>Dims every panel toward night_brightness through the twilight after sunset, and back before sunrise.</summary>
+    private static void SyncBrightness()
+    {
+        var now = DateTime.Now;
+        var weather = WeatherSource.Current;
+        // Today's times of yesterday's sunrise and sunset beat a guess, if the weather is stale.
+        DateTime? OnToday(DateTime? t) => t is { } v ? now.Date + v.TimeOfDay : null;
+        var daylight = Theme.Daylight(now, OnToday(weather?.Sunrise), OnToday(weather?.Sunset));
+        var night = _settings.NightBrightness;
+        var brightness = (int)Math.Round(night + (100 - night) * daylight);
+        foreach (var slot in Slots) slot.Panel.Brightness = brightness;
+    }
+
     // ---------------- the menu's view and commands (UI thread) ----------------
 
     public static List<PanelSlot> Slots
@@ -312,8 +377,63 @@ internal static class Hub
         }
     }
 
-    /// <summary>What was wrong with settings.json when the hub started.</summary>
+    /// <summary>An app's own seconds on screen, or null when it takes <see cref="RotateSeconds"/> like the rest.</summary>
+    public static int? AppSeconds(string producer) => _settings.AppSeconds.TryGetValue(producer, out var s) ? s : null;
+
+    public static void SetAppSeconds(string producer, int? seconds)
+    {
+        if (seconds is { } s) _settings.AppSeconds[producer] = s;
+        else _settings.AppSeconds.Remove(producer);
+        _settings.Save();
+    }
+
+    /// <summary>Percent the panels dim to at night; 100 is off.</summary>
+    public static int NightBrightness
+    {
+        get => _settings.NightBrightness;
+        set
+        {
+            _settings.NightBrightness = value;
+            _settings.Save();
+            SyncBrightness();
+        }
+    }
+
+    /// <summary>What was wrong with settings.json when it was last loaded.</summary>
     public static IReadOnlyList<string> SettingsProblems => _settings.Problems;
+
+    /// <summary>
+    /// Reads settings.json again and applies all of it at once, the weather place and the launched
+    /// apps included. A file that can't be read changes nothing, so the hub's next save can't put
+    /// defaults over a half-finished edit.
+    /// </summary>
+    /// <returns>False when the file couldn't be read; <see cref="SettingsProblems"/> says why.</returns>
+    public static bool ReloadSettings()
+    {
+        var s = HubSettings.Load(out var unreadable);
+        if (unreadable)
+        {
+            _settings.Problems.Clear();
+            _settings.Problems.Add(Strings.SettingsNotReloaded);
+            _settings.Problems.AddRange(s.Problems);
+            return false;
+        }
+        var old = _settings;
+        _settings = s;
+        foreach (var slot in Slots)
+        {
+            var video = s.Panels.GetValueOrDefault(slot.Id)?.VideoPath;
+            if (video == old.Panels.GetValueOrDefault(slot.Id)?.VideoPath) continue;
+            if (video is not null) PlayVideo(slot, video);
+            else if (slot.Feed is VideoFeed) SetFeed(slot, null, save: false);
+        }
+        WeatherSource.Start(s.Today.WeatherLocation, PostRefresh);
+        Launcher.Apply(s.Launch);
+        _todayVersion++;
+        SyncStyle();
+        Refresh();
+        return true;
+    }
 
     /// <summary>Writes the settings out, every key included, so the file shows what can be set.</summary>
     public static void SaveSettings() => _settings.Save();

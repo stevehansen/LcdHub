@@ -48,6 +48,19 @@ internal sealed record Theme(DayPhase Phase, double SunProgress, uint SkyTop, ui
         return new Theme(phase, Math.Clamp(progress, 0, 1), top, bottom, accent, holiday, particles);
     }
 
+    /// <summary>
+    /// 1 by day, 0 at night, ramping over the twilight after sunset and before sunrise, so
+    /// night dimming never jumps. Same 7-to-7 fallback as <see cref="For"/>.
+    /// </summary>
+    public static double Daylight(DateTime now, DateTime? sunrise, DateTime? sunset)
+    {
+        var rise = sunrise ?? now.Date.AddHours(7);
+        var set = sunset ?? now.Date.AddHours(19);
+        if (now >= rise && now <= set) return 1;
+        var fromDark = now > set ? Twilight - (now - set) : Twilight - (rise - now);
+        return Math.Clamp(fromDark / Twilight, 0, 1);
+    }
+
     // Meteorological seasons: whole months, March–May is spring up north.
     private static Season SeasonOf(DateTime d, bool southern) =>
         ((southern ? (d.Month + 5) % 12 + 1 : d.Month) switch

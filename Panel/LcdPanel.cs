@@ -47,6 +47,7 @@ internal sealed class LcdPanel : IDisposable
     private readonly Thread _thread;
     private uint[]? _pendingPixels;
     private bool _pendingMotion, _pendingFade;
+    private volatile int _brightness = 100;
 
     /// <summary>Starts driving the device; the first frame goes out once it answers.</summary>
     public LcdPanel(LcdDevice device)
@@ -99,6 +100,29 @@ internal sealed class LcdPanel : IDisposable
     }
 
     /// <summary>
+    /// Percent, 0 to 100. Applied to every frame on its way out, and the frame on the panel is
+    /// sent again at once when it changes.
+    /// </summary>
+    public int Brightness
+    {
+        get => _brightness;
+        set
+        {
+            value = Math.Clamp(value, 0, 100);
+            if (value == _brightness) return;
+            _brightness = value;
+            _wake.Set();
+        }
+    }
+
+    /// <summary>
+    /// What the panel shows now, upright and at full brightness, for the preview window; null
+    /// before the first frame. Never changed once set, so it's safe to read from any thread.
+    /// </summary>
+    public uint[]? Shown => Volatile.Read(ref _shown);
+    private uint[]? _shown;
+
+    /// <summary>
     /// A frame is queued that the panel hasn't taken yet, so one presented now would replace
     /// it unseen. Lets a producer skip the work of making frames faster than the panel shows them.
     /// </summary>
@@ -125,6 +149,7 @@ internal sealed class LcdPanel : IDisposable
         bool fadeToMotion = false;
         long fadeStart = 0;
         var fadeSteps = 0;
+        var sentBrightness = 100;
         try
         {
             while (!_stopped.IsSet)
@@ -158,11 +183,17 @@ internal sealed class LcdPanel : IDisposable
                     }
                     else (pixels, motion, fadeSteps) = (Blend(fadeFrom!, fadeTo, t), true, fadeSteps + 1);
                 }
+                var brightness = _brightness;
+                if (pixels is null && shown is not null && brightness != sentBrightness) (pixels, motion) = (shown, false);
                 if (pixels is not null)
                 {
                     shown = pixels;
-                    // Encode turns an upside-down panel's frame over in place; keep shown upright.
-                    var encoded = link.UpsideDown ? (uint[])pixels.Clone() : pixels;
+                    Volatile.Write(ref _shown, pixels);
+                    sentBrightness = brightness;
+                    // Encode turns an upside-down panel's frame over in place, and dimming
+                    // changes it too; keep shown upright and at full brightness.
+                    var encoded = link.UpsideDown || brightness < 100 ? (uint[])pixels.Clone() : pixels;
+                    if (brightness < 100) Dim(encoded, brightness);
                     if (Encode(encoded, motion, link.UpsideDown, ref lastDumpMs) is { } jpeg) frame = link.Frame(jpeg);
                 }
 
@@ -200,6 +231,16 @@ internal sealed class LcdPanel : IDisposable
                      | ((((a & 0x00FF00) * v + (b & 0x00FF00) * w) >> 8) & 0x00FF00);
         }
         return mixed;
+    }
+
+    private static void Dim(uint[] pixels, int percent)
+    {
+        var k = (uint)(percent * 256 / 100);
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            var p = pixels[i];
+            pixels[i] = (((p & 0xFF00FF) * k >> 8) & 0xFF00FF) | (((p & 0x00FF00) * k >> 8) & 0x00FF00);
+        }
     }
 
     private byte[]? Encode(uint[] pixels, bool motion, bool upsideDown, ref long lastDumpMs)

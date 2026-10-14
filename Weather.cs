@@ -19,18 +19,33 @@ internal static class WeatherSource
     private static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private static Weather? _current;
+    // UI thread only: the place being fetched, and how to stop fetching it.
+    private static string? _place;
+    private static CancellationTokenSource? _stop;
+
+    static WeatherSource() => Http.DefaultRequestHeaders.UserAgent.ParseAdd("LcdHub/1.0");
 
     public static Weather? Current => Volatile.Read(ref _current);
 
+    /// <summary>
+    /// Fetches for <paramref name="place"/> from now on. A new place drops the old reading at once,
+    /// so Today never shows one place's weather under another's name; the same place changes nothing.
+    /// </summary>
     /// <param name="changed">Called on a background thread after each new reading.</param>
     public static void Start(string? place, Action changed)
     {
-        if (string.IsNullOrWhiteSpace(place)) return;
-        Http.DefaultRequestHeaders.UserAgent.ParseAdd("LcdHub/1.0");
+        place = string.IsNullOrWhiteSpace(place) ? null : place.Trim();
+        if (string.Equals(place, _place, StringComparison.OrdinalIgnoreCase)) return;
+        _stop?.Cancel();
+        _stop = null;
+        _place = place;
+        Volatile.Write(ref _current, null);
+        if (place is null) return;
+        var stop = _stop = new CancellationTokenSource();
         _ = Task.Run(async () =>
         {
             (string Name, double Lat, double Lon)? where = null;
-            while (true)
+            while (!stop.IsCancellationRequested)
             {
                 // A failed fetch (Open-Meteo answers 503 now and then) is retried soon, not in 15 minutes.
                 var next = RetryAfter;
@@ -39,7 +54,9 @@ internal static class WeatherSource
                     where ??= await Geocode(place);
                     if (where is { } w)
                     {
-                        Volatile.Write(ref _current, await Fetch(w.Name, w.Lat, w.Lon));
+                        var reading = await Fetch(w.Name, w.Lat, w.Lon);
+                        if (stop.IsCancellationRequested) return;
+                        Volatile.Write(ref _current, reading);
                         changed();
                         next = Every;
                     }
@@ -50,7 +67,8 @@ internal static class WeatherSource
                 {
                     Diagnose.LogError("weather", ex);
                 }
-                await Task.Delay(next);
+                try { await Task.Delay(next, stop.Token); }
+                catch (OperationCanceledException) { return; }
             }
         });
     }

@@ -55,7 +55,8 @@ public sealed class LcdHubClient : IDisposable
 
     private readonly string _name;
     private readonly object _gate = new();
-    private readonly Dictionary<string, (uint[] Pixels, bool Alert)> _pending = new();
+    // Keyed by panel and toast, so a toast doesn't replace the frame it shows over.
+    private readonly Dictionary<(string PanelId, bool Toast), (uint[] Pixels, bool Alert, uint LifetimeMs)> _pending = new();
     private readonly AutoResetEvent _wake = new(false);
     private readonly CancellationTokenSource _stop = new();
     private readonly Thread _thread;
@@ -99,14 +100,27 @@ public sealed class LcdHubClient : IDisposable
     /// <summary>
     /// Queues a top-down BGRX frame for a panel; takes ownership of the array. While
     /// <paramref name="alert"/> is set the hub shows this frame in preference to rotating;
-    /// send a frame without it to stand down.
+    /// send a frame without it to stand down. With <paramref name="validFor"/> the hub drops
+    /// the frame once that has passed without a newer one, as if <see cref="Clear"/>ed, so a
+    /// producer that hangs doesn't leave an old picture in the rotation.
     /// </summary>
-    public void Send(string panelId, uint[] pixels, bool alert = false)
+    public void Send(string panelId, uint[] pixels, bool alert = false, TimeSpan? validFor = null) =>
+        Queue(panelId, false, pixels, alert, validFor ?? TimeSpan.Zero);
+
+    /// <summary>
+    /// Shows a frame on a panel straight away, over the rotation, a pinned app and a video, for
+    /// <paramref name="duration"/>; alerts still come first. The producer's ordinary frame, if
+    /// any, is kept and rotates again afterwards. Needs a v3 hub; an older one ignores it.
+    /// </summary>
+    public void Toast(string panelId, uint[] pixels, TimeSpan duration) =>
+        Queue(panelId, true, pixels, false, duration > TimeSpan.Zero ? duration : TimeSpan.FromSeconds(5));
+
+    private void Queue(string panelId, bool toast, uint[] pixels, bool alert, TimeSpan lifetime)
     {
         lock (_gate)
         {
             if (_panels.Count == 0) return;
-            _pending[panelId] = (pixels, alert);
+            _pending[(panelId, toast)] = (pixels, alert, (uint)Math.Min(lifetime.TotalMilliseconds, uint.MaxValue));
         }
         _wake.Set();
     }
@@ -140,14 +154,14 @@ public sealed class LcdHubClient : IDisposable
                 while (reader.IsAlive && !_stop.IsCancellationRequested)
                 {
                     _wake.WaitOne(1000);
-                    List<KeyValuePair<string, (uint[] Pixels, bool Alert)>> frames;
+                    List<KeyValuePair<(string PanelId, bool Toast), (uint[] Pixels, bool Alert, uint LifetimeMs)>> frames;
                     lock (_gate)
                     {
                         frames = _pending.ToList();
                         _pending.Clear();
                     }
-                    foreach (var (panelId, f) in frames)
-                        LcdHubWire.Write(pipe, LcdHubWire.Frame(panelId, f.Alert, f.Pixels));
+                    foreach (var (key, f) in frames)
+                        LcdHubWire.Write(pipe, LcdHubWire.Frame(key.PanelId, f.Alert, f.Pixels, key.Toast, f.LifetimeMs));
                 }
             }
             catch (TimeoutException) { }
@@ -212,8 +226,11 @@ public sealed class LcdHubClient : IDisposable
 /// <item><see cref="MsgHello"/>, producer → hub, first: u16 version, string name.</item>
 /// <item><see cref="MsgPanels"/>, hub → producer, after hello and on every change: u16
 /// count, then per panel a string id, u16 width, u16 height.</item>
-/// <item><see cref="MsgFrame"/>, producer → hub: string panel id, u8 flags (bit 0 alert),
-/// then the panel's width×height u32 top-down BGRX pixels, or none to withdraw the frame.</item>
+/// <item><see cref="MsgFrame"/>, producer → hub: string panel id, u8 flags (bit 0 alert,
+/// bit 1 toast, bit 2 lifetime), with bit 2 a u32 lifetime in ms (v3), then the panel's
+/// width×height u32 top-down BGRX pixels, or none to withdraw the frame. A frame with a
+/// lifetime is dropped by the hub when it runs out; a toast always has one. A v2 hub drops a
+/// frame with a lifetime as the wrong size, so it never shows a toast for good.</item>
 /// <item><see cref="MsgStyle"/>, hub → producer, after hello and on every change (v2): u8
 /// flags (bit 0 light), u32 background, u32 text, u32 accent.</item>
 /// <item><see cref="MsgVisibility"/>, hub → producer, on every change (v2): string panel id,
@@ -230,9 +247,9 @@ public static class LcdHubWire
     // Overlapped on both ends: each side reads on one thread while writing on another, and
     // a synchronous pipe handle makes the write wait for the pending read.
     public const PipeOptions PipeOptions = System.IO.Pipes.PipeOptions.CurrentUserOnly | System.IO.Pipes.PipeOptions.Asynchronous;
-    public const ushort Version = 2, MinVersion = 1;
+    public const ushort Version = 3, MinVersion = 1;
     public const byte MsgHello = 1, MsgPanels = 2, MsgFrame = 3, MsgStyle = 4, MsgVisibility = 5;
-    private const byte FlagAlert = 1, FlagLight = 1;
+    private const byte FlagAlert = 1, FlagToast = 2, FlagLifetime = 4, FlagLight = 1;
     // A 1920×1080 frame with room to spare; anything bigger is a corrupt stream.
     private const int MaxMessageBytes = 16 << 20;
 
@@ -259,11 +276,13 @@ public static class LcdHubWire
         return w.Done();
     }
 
-    public static byte[] Frame(string panelId, bool alert, uint[] pixels)
+    /// <param name="lifetimeMs">0 for a frame that stays until replaced.</param>
+    public static byte[] Frame(string panelId, bool alert, uint[] pixels, bool toast = false, uint lifetimeMs = 0)
     {
         var w = new Writer(MsgFrame, pixels.Length * 4 + 64);
         w.Str(panelId);
-        w.U8(alert ? FlagAlert : (byte)0);
+        w.U8((byte)((alert ? FlagAlert : 0) | (toast ? FlagToast : 0) | (lifetimeMs > 0 ? FlagLifetime : 0)));
+        if (lifetimeMs > 0) w.U32(lifetimeMs);
         w.Pixels(pixels);
         return w.Done();
     }
@@ -313,12 +332,15 @@ public static class LcdHubWire
         return panels;
     }
 
-    public static (string PanelId, bool Alert, uint[] Pixels) ParseFrame(byte[] body)
+    public readonly record struct FrameMessage(string PanelId, bool Alert, bool Toast, uint LifetimeMs, uint[] Pixels);
+
+    public static FrameMessage ParseFrame(byte[] body)
     {
         var r = new Reader(body);
         var id = r.Str();
-        var alert = (r.U8() & FlagAlert) != 0;
-        return (id, alert, r.Pixels());
+        var flags = r.U8();
+        var lifetime = (flags & FlagLifetime) != 0 ? r.U32() : 0;
+        return new FrameMessage(id, (flags & FlagAlert) != 0, (flags & FlagToast) != 0, lifetime, r.Pixels());
     }
 
     public static void Write(Stream stream, byte[] message)

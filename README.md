@@ -29,10 +29,14 @@ flowchart LR
   Windows, or set in the tray) with your accent colour, so the rotation doesn't jump between looks.
 - **Alerts.** A frame flagged as an alert pre-empts the rotation, and a video or mirrored
   window as well. Alerting apps share the panel until they send a normal frame again.
+- **Toasts.** An app can show a frame over the rotation for a few seconds ("build done"),
+  after which the rotation carries on.
 - **Video and window mirroring.** Instead of rotating, a panel can play a video file
   (decoded on the GPU, looping) or mirror any open window.
 - **Privacy takeover.** While Windows is locked, panels show only Today, whatever the
   apps send. While the monitors sleep, panels go black.
+- **Night dimming.** Panels dim to half brightness (or what you choose) through the 40 minutes
+  after sunset, and brighten again before sunrise, using the weather's sun times.
 - **Per-panel choices.** Each panel can hide any app from its rotation, or keep one app showing
   (alerts still interrupt it).
 
@@ -58,7 +62,8 @@ The protocol notes in thermalright-trcc-linux cover many more models, and [docs/
 ## Using it
 
 1. Close TRCC or any other app that drives the panel. Only one process can own a panel.
-2. Run `LcdHub.exe`. A panel icon appears in the tray, and connected panels show Today.
+2. Run `LcdHub.exe`, from the zip on the [releases page](https://github.com/stevehansen/LcdHub/releases)
+   or built yourself. A panel icon appears in the tray, and connected panels show Today.
 3. Start apps that send frames. They join the rotation by themselves.
 
 ### Tray menu
@@ -73,14 +78,16 @@ The protocol notes in thermalright-trcc-linux cover many more models, and [docs/
 | *panel size* ▸ **Mirror window** ▸ | Show a live copy of an open window instead |
 | **Today** ▸ | Weather, date, holiday names, sky colours and effects, on or off for every panel |
 | **Appearance** ▸ | Follow Windows, dark or light, for every app that supports it |
-| **Rotate every** ▸ | How long each app stays on screen |
-| **Settings** ▸ | Open the settings file, open the [settings reference](docs/settings.md), or see problems found in it |
+| **Rotate every** ▸ | How long each app stays on screen, for all apps or per app |
+| **Dim at night** ▸ | How bright panels are between dusk and dawn, or off |
+| **Preview…** | A window showing what every panel shows right now |
+| **Settings** ▸ | Open the settings file, reload it after editing, open the [settings reference](docs/settings.md), or see problems found in it |
 | **Start with Windows** | Adds or removes the per-user Run registry entry |
 
 Settings are stored in `%APPDATA%\LcdHub\settings.json`; **Settings ▸ Open settings file** in
 the tray opens it with every key filled in, and editors validate it against
-[`settings.schema.json`](settings.schema.json). A few things are set only there, then take
-effect after a restart of the hub:
+[`settings.schema.json`](settings.schema.json), and **Settings ▸ Reload settings** applies your
+edits without a restart. A few things are set only there:
 
 - `today.weather_location`: the place for the weather, e.g. `"Antwerp"` (looked up with
   [Open-Meteo](https://open-meteo.com), free and without a key).
@@ -136,8 +143,16 @@ void RedrawAll(IReadOnlyList<LcdHubPanel> panels)
   optional: an app that ignores them still works.
 - `lcd.Clear(p.Id)` takes your frame off a panel until you send again. It suits an app
   that only has something to say now and then (see the Uptime sample).
+- `lcd.Send(id, pixels, validFor: TimeSpan.FromMinutes(2))` lets the hub drop the frame if you
+  don't send a newer one in time, so a hung app doesn't leave stale data on screen.
+- `lcd.Toast(id, pixels, TimeSpan.FromSeconds(5))` shows a frame over the rotation, a pinned app
+  and a video (not over alerts), then the rotation carries on. Stay connected until it's over.
 - The client connects and reconnects by itself. Frames sent while the hub isn't running
   are dropped.
+
+From Python, use [clients/python/lcdhub.py](clients/python/lcdhub.py) (standard library only;
+[example.py](clients/python/example.py) draws a clock with Pillow and can send a toast:
+`python example.py --toast "Build done"`).
 
 Apps in other languages can use the pipe directly. It is a per-user named pipe `\\.\pipe\LcdHub`
 carrying small length-prefixed messages, documented on `LcdHubWire` in the same file.
@@ -175,9 +190,10 @@ $env:PHARE_API_KEY = "..."; dotnet run --project samples\Uptime
   1. Monitors off → black.
   2. Locked → Today.
   3. Any alert → rotate among the alerting apps.
-  4. An app you chose to keep showing → that app.
-  5. A video or window → that.
-  6. Otherwise → rotate among the apps (plus Today, or only Today if there are none).
+  4. Any toast → that, until it runs out.
+  5. An app you chose to keep showing → that app.
+  6. A video or window → that.
+  7. Otherwise → rotate among the apps (plus Today, or only Today if there are none).
 
   These rules are one pure function, [Rotation.cs](Rotation.cs), which is covered by the
   tests.
@@ -196,6 +212,10 @@ dotnet run --project .\LcdHub.csproj -- --diagnose
 dotnet run --project .\Tests\LcdHub.Tests.csproj   # rotation rules + wire format
 .\publish-aot.bat                                  # native AOT exe in bin\Publish\AOT
 ```
+
+Pushing a tag such as `v0.1.0` runs [the release workflow](.github/workflows/release.yml): it
+runs the tests, builds the native exe and the samples, and publishes a GitHub release with both
+zips. A tag with a suffix (`v0.2.0-beta`) makes a pre-release.
 
 ## License
 

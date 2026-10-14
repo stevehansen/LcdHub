@@ -3,7 +3,7 @@
 The contract between the hub and the apps that send it frames: the named pipe, its messages, and
 the client library.
 
-**Status:** current as of wire version 2 (Style and Visibility). No single PRD (foundational domain).
+**Status:** current as of wire version 3 (toasts and frame lifetimes). No single PRD (foundational domain).
 **Priming skill:** [`.claude/skills/producer-protocol/SKILL.md`](../.claude/skills/producer-protocol/SKILL.md)
 
 ## What it is
@@ -53,6 +53,19 @@ frames, panel lists, the shared style and visibility cross the pipe. It does *no
   (`LcdHubClient.Clear`) withdraws the producer from that panel until its next frame, so it
   leaves the rotation and stands down any alert without disconnecting. The hub drops other sizes
   and unknown panel ids silently. It never scales.
+- **A frame's extra fields go before the pixels,** because the pixels are the rest of the
+  message. v3 flags a lifetime (`validFor`, or a toast's duration) with bit 2 and puts a u32 ms
+  ahead of the pixels. A frame without one is byte for byte a v2 frame; a v2 hub drops one with a
+  lifetime as the wrong size, so it never keeps a toast for good.
+- **A toast is a second frame per panel,** kept beside the producer's ordinary one
+  (`Producer.Toasts`), which rotates again once the toast expires. Like every frame, it goes when
+  its producer disconnects, so a one-shot sender must stay connected for the toast's duration.
+- **Frames with a lifetime expire on the hub** (`Hub.ExpireFrames`, on every refresh), as if
+  withdrawn. That's how a producer guards against hanging: the hub can't tell a hung producer
+  from one whose picture just didn't change.
+- **The hub never writes to a producer under its gate.** A pipe write waits until the app reads,
+  so `Producer.Send` queues and a writer thread per producer writes. A producer that doesn't read
+  (busy, hung, or the Python client between polls) once froze the whole hub this way.
 - **Every Panels message means "redraw everything".** The hub has forgotten the producer's
   frames. The client clears its pending frames and fires `PanelsChanged`, including on connect,
   and with an empty list on disconnect.
@@ -64,6 +77,8 @@ frames, panel lists, the shared style and visibility cross the pipe. It does *no
 ## Launched producers
 
 `Launcher.cs` starts the `launch` entries in settings (path and args) and keeps them running.
+`Launcher.Apply` takes the whole list, at start and on every settings reload: it starts new
+entries and ends the apps it started for entries that are gone, leaving the rest alone.
 After a run under 1 minute the retry delay doubles from 5 s up to 5 minutes; a longer run
 resets it. An exe that is already running elsewhere (same full path) is checked again every
 30 s instead of being started twice, because single-instance apps would otherwise exit and
@@ -84,9 +99,11 @@ the OS ends them with the hub. It doesn't change the pipe: a launched app connec
 - **The producer name is user-facing and persistent.** It appears in the tray menu and keys
   "hidden on this panel", so keep it stable across versions of the app.
 - **`PanelsChanged` runs on the client's thread,** not the producer's UI thread.
-- **Panels are sent under the hub's gate** in `Hub.Connect` and `SyncPanels`, so a newer list
-  can't be overtaken by an older one. This only holds while writes never block, which is why the
-  asynchronous pipe option matters.
+- **Panels are queued under the hub's gate** in `Hub.Connect` and `SyncPanels`, so a newer list
+  can't be overtaken by an older one; the producer's writer thread keeps the order.
+- **Other languages:** [`clients/python/lcdhub.py`](../clients/python/lcdhub.py) speaks the same
+  wire with the standard library. Its handle is synchronous, so it has no reader thread and never
+  blocks on a read: `poll()` reads only what `PeekNamedPipe` says has arrived.
 - **Pixel layout:** top-down rows of little-endian `uint` BGRX, written as raw memory.
   Non-.NET producers must match it byte for byte.
 

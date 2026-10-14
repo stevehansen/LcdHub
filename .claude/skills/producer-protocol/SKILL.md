@@ -16,6 +16,8 @@ description: Prime on the LcdHub producer protocol before working on it: LcdHubC
 - **Both ends use `LcdHubWire.PipeOptions` (`Asynchronous`).** With synchronous handles, writes stall behind reads.
 - **A frame is exactly the panel's width × height, or empty to withdraw** (`Clear`). Other sizes are dropped silently.
 - **A Panels message means "redraw everything".** The hub has forgotten your frames.
+- **Fields go before the pixels.** A frame's pixels are the rest of the message, so v3's lifetime (toasts, `validFor`) sits ahead of them behind flag bit 2.
+- **The hub never writes to a producer under its gate.** `Producer.Send` queues for a writer thread per producer; a pipe write waits for the app to read.
 
 ## Key files
 

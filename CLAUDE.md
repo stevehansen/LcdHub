@@ -19,14 +19,18 @@ The hub is the single owner of the USB LCDs. WinUSB is exclusive and HID frames 
 - `Hub.cs`: the state and scheduling.
   - A single `_gate` guards the panel slots, the producers and their frames.
   - Pipe threads store frames (validated against the panel size) and post `WM_APP_REFRESH`.
+  - Writes to a producer go through its outbox (`Producer.Send`, a writer thread each), never straight to the pipe: a producer that doesn't read would block the gate's holder.
   - The UI thread does everything else: the 1 s `Tick` (device sync + refresh), feeds and settings.
-- `Rotation.cs`: a pure `Pick` function holding all the rules (display off → blank, locked → Today, alerts, feed, rotation). It is tested; keep the rules there.
+- `Rotation.cs`: a pure `Pick` function holding all the rules (display off → blank, locked → Today, alerts, toasts, pin, feed, rotation, per-app turns). It is tested; keep the rules there.
 - `Panel/`: the device side.
   - `LcdPanel`: the device drivers, JPEG and keepalive.
   - `LcdFeed`/`WindowFeed`/`VideoFeed`: hub-owned moving sources.
 - `samples/`: example producers (console apps). Each links the client plus `samples/Common` (a GDI `Canvas` and the `Sample.Run` loop). They are excluded from the hub's compile glob, and must stay free of keys and personal data.
-- `Settings.cs`: `settings.json` via `SettingsJsonContext`. `Load` never fails: an unparsable file is copied to `.bad` first. Unknown keys (`[JsonExtensionData]`) and bad values become `Problems`, shown under ⚠ Settings in the tray. **A new setting goes into `settings.schema.json` (a test enforces it) and `docs/settings.md` in the same change.**
+- `Settings.cs`: `settings.json` via `SettingsJsonContext`. `Load` never fails: an unparsable file is copied to `.bad` first. Unknown keys (`[JsonExtensionData]`) and bad values become `Problems`, shown under ⚠ Settings in the tray. `Hub.ReloadSettings` (tray: Reload settings) applies an edited file live, so every setting must take effect without a restart (`WeatherSource.Start` moves place, `Launcher.Apply` diffs the list); an unreadable file changes nothing. **A new setting goes into `settings.schema.json` (a test enforces it) and `docs/settings.md` in the same change.**
 - `Launcher.cs`: starts the `launch` apps from settings and restarts them with backoff. They sit in a kill-on-close job object, so they end with the hub even when it is killed. It skips an exe that is already running elsewhere.
+- Night dimming: `Hub.SyncBrightness` sets each `LcdPanel.Brightness` every `Tick`, from `Theme.Daylight` (the weather's sun times, else 7-to-7) and `night_brightness`.
+- `Preview.cs`: the tray's Preview window, painting every panel's `LcdPanel.Shown` four times a second.
+- `clients/python/lcdhub.py`: a standard-library Python producer speaking the same wire. Keep it in step with `LcdHubWire`.
 - `MainWindow.cs`: a hidden popup window (so it gets `TaskbarCreated`), the tray menu, the WTS lock and display-state notifications, and the startup registry entry.
 
 ## Ubiquitous Language
@@ -44,7 +48,7 @@ skill too if a load-bearing invariant changes. The same applies to `UBIQUITOUS_L
 
 ## Gotchas
 
-- `LcdPanel.Present` takes ownership and may reverse the array in place, so producer frames are **cloned** before presenting.
+- `LcdPanel.Present` keeps the array and never changes it (it clones to turn or dim a frame), so callers must not change it afterwards either.
 - Feed frames are presented under `_gate`, and only while that slot's `Pick == Rotation.Feed`.
 - The hub forgets a producer's frames whenever the panel list changes. The client's `PanelsChanged` tells producers to redraw.
 - Keep managed callbacks in static fields (`_wndProcKeepAlive`, `_windowEnumKeepAlive`).

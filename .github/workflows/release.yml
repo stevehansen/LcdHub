@@ -1,0 +1,47 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the native exe and publish a GitHub release with it.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - run: dotnet run --project Tests/LcdHub.Tests.csproj -c Release
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $numeric = $version.Split('-')[0]
+          # NativeAOT runs vswhere.exe unqualified to find the MSVC linker.
+          $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
+          dotnet publish LcdHub.csproj /p:PublishProfile=AOT /p:Version=$version /p:FileVersion=$numeric.0 /p:AssemblyVersion=$numeric.0
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($sample in 'Stocks', 'Uptime') {
+            dotnet publish samples/$sample -c Release -o artifacts/samples/$sample /p:Version=$version
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          New-Item -ItemType Directory artifacts/hub | Out-Null
+          Copy-Item bin/Publish/AOT/LcdHub.exe, README.md, LICENSE artifacts/hub
+          Compress-Archive artifacts/hub/* "LcdHub-$version-win-x64.zip"
+          Compress-Archive artifacts/samples/* "LcdHub-samples-$version.zip"
+
+      - name: Create release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flags = @('--generate-notes')
+          if ("${{ github.ref_name }}".Contains('-')) { $flags += '--prerelease' }
+          gh release create "${{ github.ref_name }}" (Get-ChildItem *.zip).FullName @flags

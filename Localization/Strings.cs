@@ -18,6 +18,11 @@ internal static class Strings
     public const string NoWindows = "No windows";
     public const string RotateEvery = "Rotate every";
     public const string SecondsSuffix = "s";
+    public const string LikeTheOthers = "Like the others";
+    public const string ShowPreview = "Preview…";
+    public const string PreviewTitle = "LCD Hub preview";
+    public const string DimAtNight = "Dim at night";
+    public const string DimOff = "Off";
     public const string StartWithWindows = "Start with Windows";
     public const string Exit = "Exit";
 
@@ -26,8 +31,11 @@ internal static class Strings
     public const string OpenSettings = "Open settings file";
     public const string SettingsHelp = "Settings help";
     public const string SettingsProblems = "Settings problems";
-    public const string SettingsProblemsHint = "Fix settings.json and restart LCD Hub. Until then the hub uses the defaults for these.";
-    public const string SettingsUnreadable = "settings.json can't be read, so the defaults are used; the file was kept as settings.json.bad";
+    public const string ReloadSettings = "Reload settings";
+    public const string SettingsReloaded = "Settings reloaded. No problems found.";
+    public const string SettingsNotReloaded = "Nothing was reloaded: the hub keeps the settings it had";
+    public const string SettingsProblemsHint = "Fix settings.json, then choose Settings ▸ Reload settings. Until then the hub uses the defaults for these.";
+    public const string SettingsUnreadable = "settings.json can't be read (a copy was kept as settings.json.bad)";
     public const string SettingsUnknownKey = "Unknown setting";
     public const string SettingsBadValue = "Invalid value";
     public const string SettingsMissingFile = "Launch: file not found";
