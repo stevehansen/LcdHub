@@ -49,8 +49,14 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 - **A feed pauses, it isn't stopped,** while an alert or takeover holds the panel.
   `PresentFeedFrame` presents only under the gate and only while `Pick == Rotation.Feed`, so a
   late feed frame can't overwrite the switch away.
-- **Producer frames are cloned before `Present`.** The panel takes ownership and may reverse the
-  array.
+- **A switch of pick fades.** `Refresh` passes `fade: true` when the pick changed, and the panel
+  blends from what it shows over 400 ms. `Present` keeps the array and never changes it, so producer
+  frames go in uncloned.
+- **Visibility follows the pick.** After each pick, `TellVisibility` tells each producer Shown,
+  Next (the pick that would follow this turn, or no frame here yet) or Hidden (see
+  [producer-protocol](producer-protocol.md)).
+- **The style is checked every tick** (`HubStyle.Current`: settings, then the Windows app mode and
+  accent). A change is broadcast and redraws Today, which uses the style when the sky is off.
 - **Pipe threads only store frames and post `WM_APP_REFRESH`.** Panels, feeds and settings change
   on the UI thread. Refresh posts are coalesced through `_refreshPosted`.
 - **Panel list changes drop that panel's frames.** Producers learn of the change and redraw (see

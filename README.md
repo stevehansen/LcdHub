@@ -24,7 +24,9 @@ flowchart LR
 
   ![Today](docs/images/today.jpg)
 - **Rotation.** Each panel cycles through the apps that sent it a frame, every
-  5/10/15/30/60 s.
+  5/10/15/30/60 s, fading from one to the next.
+- **One look.** The hub asks every app to draw in the same dark or light style (following
+  Windows, or set in the tray) with your accent colour, so the rotation doesn't jump between looks.
 - **Alerts.** A frame flagged as an alert pre-empts the rotation, and a video or mirrored
   window as well. Alerting apps share the panel until they send a normal frame again.
 - **Video and window mirroring.** Instead of rotating, a panel can play a video file
@@ -70,6 +72,7 @@ The protocol notes in thermalright-trcc-linux cover many more models, and [docs/
 | *panel size* ▸ **Video file…** | Play a video on this panel instead (remembered) |
 | *panel size* ▸ **Mirror window** ▸ | Show a live copy of an open window instead |
 | **Today** ▸ | Weather, date, holiday names, sky colours and effects, on or off for every panel |
+| **Appearance** ▸ | Follow Windows, dark or light, for every app that supports it |
 | **Rotate every** ▸ | How long each app stays on screen |
 | **Start with Windows** | Adds or removes the per-user Run registry entry |
 
@@ -78,8 +81,10 @@ Settings are stored in `%APPDATA%\LcdHub\settings.json`. For the weather, set a 
 restart the hub:
 
 ```json
-{ "today": { "weather_location": "Antwerp" } }
+{ "today": { "weather_location": "Antwerp" }, "style": { "accent": "#3B82F6" } }
 ```
+
+Without an `accent`, apps get the Windows accent colour.
  Running with `--diagnose` logs to
 `%TEMP%\lcd-hub.log` and keeps a copy of each panel's current picture at
 `%TEMP%\lcd-hub-lcd-<w>x<h>.jpg`.
@@ -95,11 +100,16 @@ using LcdHub.Client;
 
 var lcd = new LcdHubClient("My App");               // shown in the hub's menu; keep it stable
 lcd.PanelsChanged += panels => RedrawAll(panels);   // also on (re)connect: redraw everything
+lcd.StyleChanged += _ => RedrawAll(lcd.Panels);     // dark/light or accent changed
 
 void RedrawAll(IReadOnlyList<LcdHubPanel> panels)
 {
     foreach (var p in panels)
-        lcd.Send(p.Id, Render(p.Width, p.Height), alert: somethingUrgent);
+    {
+        // Off screen and not up next: the hub keeps your last frame, so save the work.
+        if (lcd.Visibility(p.Id) == LcdHubVisibility.Hidden && !somethingUrgent) continue;
+        lcd.Send(p.Id, Render(p.Width, p.Height, lcd.Style), alert: somethingUrgent);
+    }
 }
 ```
 
@@ -107,7 +117,11 @@ void RedrawAll(IReadOnlyList<LcdHubPanel> panels)
   panel's own size. The hub never scales, and it drops frames of the wrong size.
 - `Send` never blocks, and only the newest frame per panel is kept. Send whenever your
   picture changes; the hub keeps the panel alive on its own.
-- An alert lasts until you send a frame for that panel without `alert`.
+- An alert lasts until you send a frame for that panel without `alert`, so send that one
+  even while Hidden.
+- `lcd.Style` gives the background, text and accent colours to draw with, and whether it's light.
+  `lcd.Visibility(id)` is Shown, Next (up next, or no frame from you yet) or Hidden. Both are
+  optional: an app that ignores them still works.
 - `lcd.Clear(p.Id)` takes your frame off a panel until you send again. It suits an app
   that only has something to say now and then (see the Uptime sample).
 - The client connects and reconnects by itself. Frames sent while the hub isn't running

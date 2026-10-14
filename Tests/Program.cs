@@ -63,6 +63,15 @@ Check(LcdHubWire.Read(stream) is null, "clean end of stream reads null");
 var (_, _, empty) = LcdHubWire.ParseFrame(LcdHubWire.Read(new MemoryStream(LcdHubWire.Frame("x", false, [])))!.Value.Body);
 Check(empty.Length == 0, "an empty frame (withdraw) round-trips");
 
+var style = new LcdHubStyle(true, 0xF3F3F3, 0x1A1A1A, 0x0078D4);
+Check(LcdHubWire.ParseStyle(LcdHubWire.Read(new MemoryStream(LcdHubWire.Style(style)))!.Value.Body) == style, "style round-trips");
+Check(LcdHubWire.ParseVisibility(LcdHubWire.Read(new MemoryStream(LcdHubWire.Visibility("x", LcdHubVisibility.Next)))!.Value.Body)
+      == ("x", LcdHubVisibility.Next), "visibility round-trips");
+var longer = LcdHubWire.Visibility("x", LcdHubVisibility.Shown).Concat(new byte[] { 9, 9 }).ToArray();
+longer[0] += 2; // the length now covers two fields a newer hub added
+Check(LcdHubWire.ParseVisibility(LcdHubWire.Read(new MemoryStream(longer))!.Value.Body) == ("x", LcdHubVisibility.Shown),
+    "fields a newer peer appends are ignored");
+
 var truncated = LcdHubWire.Hello("abc")[..^1];
 var threw = false;
 try { LcdHubWire.Read(new MemoryStream(truncated)); } catch (IOException) { threw = true; }

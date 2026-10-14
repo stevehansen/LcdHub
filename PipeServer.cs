@@ -39,9 +39,9 @@ internal static class PipeServer
         {
             if (LcdHubWire.Read(pipe) is not { Type: LcdHubWire.MsgHello } hello) return;
             var (version, name) = LcdHubWire.ParseHello(hello.Body);
-            if (version != LcdHubWire.Version)
+            if (version < LcdHubWire.MinVersion)
             {
-                Diagnose.Log($"pipe: {name} speaks version {version}, not {LcdHubWire.Version}");
+                Diagnose.Log($"pipe: {name} speaks version {version}, older than {LcdHubWire.MinVersion}");
                 return;
             }
             producer = Hub.Connect(name, message => LcdHubWire.Write(pipe, message));

@@ -16,7 +16,8 @@ internal static class MainWindow
     private const int MaxPanels = 4, MaxProducers = 40, MaxWindows = 40;
 
     // Menu ids: global ones below 1000; per panel 1000 + index*200 + item.
-    private const int IdRotateFirst = 10, IdStartup = 20, IdExit = 30, IdTodayFirst = 40;
+    private const int IdRotateFirst = 10, IdStartup = 20, IdExit = 30, IdTodayFirst = 40, IdStyleFirst = 50;
+    private static readonly string[] StyleModes = [HubStyle.System, HubStyle.Dark, HubStyle.Light];
     private const int IdPanelBase = 1000, IdPanelStride = 200;
     private const int ItemRotate = 0, ItemToday = 1, ItemVideo = 2, ItemProducer = 10, ItemPin = 50, ItemWindow = 100;
 
@@ -201,6 +202,12 @@ internal static class MainWindow
         NativeMethods.AppendMenuW(today, Checked(o.Effects), (UIntPtr)(IdTodayFirst + 4), Strings.TodayEffects);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)today, Strings.Today);
 
+        var style = NativeMethods.CreatePopupMenu();
+        string[] styleNames = [Strings.StyleSystem, Strings.StyleDark, Strings.StyleLight];
+        for (int i = 0; i < StyleModes.Length; i++)
+            NativeMethods.AppendMenuW(style, Checked(Hub.StyleMode == StyleModes[i]), (UIntPtr)(IdStyleFirst + i), styleNames[i]);
+        NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)style, Strings.Style);
+
         var rotate = NativeMethods.CreatePopupMenu();
         for (int i = 0; i < RotateChoices.Length; i++)
             NativeMethods.AppendMenuW(rotate, Checked(Hub.RotateSeconds == RotateChoices[i]), (UIntPtr)(IdRotateFirst + i),
@@ -275,6 +282,11 @@ internal static class MainWindow
                 case 4: o.Effects = !o.Effects; break;
             }
             Hub.TodayChanged();
+            return;
+        }
+        if (id >= IdStyleFirst && id < IdStyleFirst + StyleModes.Length)
+        {
+            Hub.StyleMode = StyleModes[id - IdStyleFirst];
             return;
         }
         if (id == IdStartup)

@@ -33,8 +33,13 @@ that belongs to [scheduling](scheduling.md).
 - **The Panel id must stay stable.** It keys per-panel settings in
   [scheduling](scheduling.md). For `0416:5302` it is the bare USB id; for `0416:5408` it also
   carries the USB serial. Changing the format orphans every saved choice. Owned by `FindDevices`.
-- **`Present` takes ownership of the array** and may reverse it in place for an upside-down
-  panel. Callers that keep the pixels must hand over a clone.
+- **`Present` keeps the array and never changes it.** The panel keeps the upright picture it
+  shows (`shown`), and an upside-down panel encodes a reversed copy. Callers mustn't change the
+  array afterwards either.
+- **`fade: true` blends over 400 ms** from whatever is on the panel (a fade in progress included)
+  to the new frame. Steps go out back to back at motion quality, and the last one at the frame's
+  own quality. A fade request survives a newer frame replacing the pending one. `--diagnose` logs
+  the step count.
 - **Only the newest frame is kept.** A caller that outruns the panel just loses frames;
   `HasPendingFrame` lets a feed skip making them.
 - **JPEGs are capped.** The 9.16" silently keeps its old picture when sent one that is too big,

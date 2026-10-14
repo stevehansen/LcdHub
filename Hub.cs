@@ -8,6 +8,8 @@ internal sealed class Producer(string name, Action<byte[]> send)
     public string Name { get; } = name;
     // Panel id → the newest frame for it.
     public readonly Dictionary<string, Frame> Frames = new();
+    // Panel id → the visibility last sent; a panel missing here is Next, as the client assumes.
+    public readonly Dictionary<string, LcdHubVisibility> Told = new();
 
     /// <summary>Best effort: a producer that has gone is reaped by its own pipe thread.</summary>
     public void Send(byte[] message)
@@ -59,11 +61,13 @@ internal static class Hub
     private static int _refreshPosted;
     // Bumped when the Today options change, so Today is drawn again.
     private static int _todayVersion;
+    private static LcdHubStyle _style = LcdHubStyle.Default;
 
     public static void Start(IntPtr hwnd)
     {
         _hwnd = hwnd;
         _settings = HubSettings.Load();
+        _style = HubStyle.Current(_settings.Style);
         WeatherSource.Start(_settings.Today.WeatherLocation, PostRefresh);
         Tick();
     }
@@ -82,6 +86,7 @@ internal static class Hub
     public static void Tick()
     {
         SyncPanels();
+        SyncStyle();
         Refresh();
     }
 
@@ -107,6 +112,7 @@ internal static class Hub
             _producers.Add(producer);
             // Under the gate, so it can't overtake a newer list broadcast by SyncPanels.
             producer.Send(LcdHubWire.Panels(PanelListLocked()));
+            producer.Send(LcdHubWire.Style(_style));
             Diagnose.Log($"hub: {unique} connected");
             return producer;
         }
@@ -162,14 +168,19 @@ internal static class Hub
                     if (p.Frames.TryGetValue(slot.Id, out var f) && settings?.Hidden.Contains(p.Name) != true)
                         offers.Add(new Rotation.Offer(p.Name, f.Alert));
 
+                var switched = false;
                 var pick = Rotation.Pick(offers, settings?.Pinned, settings?.Today ?? false, slot.Feed is not null, _locked, _displayOff,
                     slot.Pick, TimeSpan.FromMilliseconds(now - slot.PickedAt), interval);
                 if (pick != slot.Pick)
                 {
                     Diagnose.Log($"hub: {slot.Id} shows {pick.TrimStart('\0')}");
-                    (slot.Pick, slot.PickedAt) = (pick, now);
+                    (slot.Pick, slot.PickedAt, switched) = (pick, now, true);
                 }
                 if (slot.Feed is { } feed) feed.Paused = pick != Rotation.Feed;
+                // Whatever would follow if this turn ended now.
+                var next = Rotation.Pick(offers, settings?.Pinned, settings?.Today ?? false, slot.Feed is not null, _locked, _displayOff,
+                    pick, interval, interval);
+                TellVisibility(slot.Id, settings, pick, next);
 
                 object? content = pick switch
                 {
@@ -184,13 +195,31 @@ internal static class Hub
                 var (w, h) = (slot.Panel.Width, slot.Panel.Height);
                 var pixels = content switch
                 {
-                    // LcdPanel takes ownership and may turn the array upside down in place.
-                    Frame frame => (uint[])frame.Pixels.Clone(),
+                    Frame frame => frame.Pixels,
                     Rotation.Blank => new uint[w * h],
-                    _ => Today.Paint(w, h, clock, today.Weather, _settings.Today),
+                    _ => Today.Paint(w, h, clock, today.Weather, _settings.Today, _style),
                 };
-                if (pixels is not null) slot.Panel.Present(pixels);
+                if (pixels is not null) slot.Panel.Present(pixels, fade: switched);
             }
+        }
+    }
+
+    /// <summary>
+    /// Lets each producer skip drawing what nobody will see: Shown while on the panel, Next while
+    /// up next or before its first frame here (so it can join), Hidden otherwise. Under the gate.
+    /// </summary>
+    private static void TellVisibility(string panelId, PanelSettings? settings, string pick, string next)
+    {
+        foreach (var p in _producers)
+        {
+            var visibility = p.Name == pick ? LcdHubVisibility.Shown
+                : _locked || _displayOff || settings?.Hidden.Contains(p.Name) == true ? LcdHubVisibility.Hidden
+                : p.Name == next || !p.Frames.ContainsKey(panelId) ? LcdHubVisibility.Next
+                : LcdHubVisibility.Hidden;
+            if (p.Told.GetValueOrDefault(panelId, LcdHubVisibility.Next) == visibility) continue;
+            p.Told[panelId] = visibility;
+            p.Send(LcdHubWire.Visibility(panelId, visibility));
+            Diagnose.Log($"hub: {p.Name} on {panelId} is {visibility}");
         }
     }
 
@@ -238,8 +267,26 @@ internal static class Hub
         lock (_gate)
         {
             var panels = LcdHubWire.Panels(PanelListLocked());
-            foreach (var p in _producers) p.Send(panels);
+            foreach (var p in _producers)
+            {
+                p.Send(panels);
+                p.Told.Clear(); // the client is back to Next for every panel
+            }
         }
+    }
+
+    private static void SyncStyle()
+    {
+        var style = HubStyle.Current(_settings.Style);
+        lock (_gate)
+        {
+            if (style == _style) return;
+            _style = style;
+            var message = LcdHubWire.Style(style);
+            foreach (var p in _producers) p.Send(message);
+        }
+        _todayVersion++;
+        Diagnose.Log($"hub: style now {(style.Light ? "light" : "dark")}, accent {style.Accent:X6}");
     }
 
     // ---------------- the menu's view and commands (UI thread) ----------------
@@ -262,6 +309,24 @@ internal static class Hub
             _settings.RotateSeconds = value;
             _settings.Save();
         }
+    }
+
+    /// <summary><see cref="HubStyle.System"/>, dark or light.</summary>
+    public static string StyleMode
+    {
+        get => _settings.Style.Mode;
+        set
+        {
+            _settings.Style.Mode = value;
+            _settings.Save();
+            SyncStyle();
+            Refresh();
+        }
+    }
+
+    public static LcdHubStyle Style
+    {
+        get { lock (_gate) return _style; }
     }
 
     public static bool IsHidden(PanelSlot slot, string producer) =>

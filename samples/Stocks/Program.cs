@@ -28,8 +28,8 @@ await Sample.Run("Stocks", TimeSpan.FromMinutes(1),
             alert |= Math.Abs(change) >= alertAt;
             var color = change >= 0 ? 0x40D080u : 0xFF5050u;
             if (Math.Abs(change) >= alertAt) c.Box(0, top, c.Width, rowH, 0x401010);
-            c.Text(q.Symbol, pad, top + pad, text, 0xFFFFFF, bold: true);
-            c.Text($"{q.Price:N2} {q.Currency}", pad, top + rowH - pad - text, text, 0xE0E0E0);
+            c.Text(q.Symbol, pad, top + pad, text, c.Style.Text, bold: true);
+            c.Text($"{q.Price:N2} {q.Currency}", pad, top + rowH - pad - text, text, c.Style.Text);
             c.Text($"{change:+0.00;-0.00}%", c.Width / 2 - pad, top + rowH / 2 - text / 2, text, color, Canvas.Align.Right, bold: true);
             Chart(c, q, c.Width / 2, top + pad, c.Width / 2 - pad, rowH - 2 * pad, color);
         }

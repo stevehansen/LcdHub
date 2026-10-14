@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using LcdHub.Client;
 
 namespace LcdHub.Samples;
 
@@ -13,21 +14,24 @@ public sealed unsafe partial class Canvas : IDisposable
 
     public int Width { get; }
     public int Height { get; }
+    /// <summary>The hub's shared look; the canvas starts filled with its background.</summary>
+    public LcdHubStyle Style { get; }
 
     private readonly IntPtr _dc, _bitmap, _oldBitmap;
     private readonly uint* _bits;
 
-    public Canvas(int width, int height, uint background = 0x101418)
+    public Canvas(int width, int height, LcdHubStyle? style = null)
     {
         Width = width;
         Height = height;
+        Style = style ?? LcdHubStyle.Default;
         var bi = new BITMAPINFOHEADER { Size = 40, Width = width, Height = -height, Planes = 1, BitCount = 32 };
         _dc = CreateCompatibleDC(IntPtr.Zero);
         _bitmap = CreateDIBSection(_dc, ref bi, 0, out var bits, IntPtr.Zero, 0);
         _bits = (uint*)bits;
         _oldBitmap = SelectObject(_dc, _bitmap);
         SetBkMode(_dc, 1); // TRANSPARENT
-        Box(0, 0, width, height, background);
+        Box(0, 0, width, height, Style.Background);
     }
 
     public void Box(int x, int y, int w, int h, uint color)

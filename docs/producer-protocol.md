@@ -3,32 +3,46 @@
 The contract between the hub and the apps that send it frames: the named pipe, its messages, and
 the client library.
 
-**Status:** current as of wire version 1. No single PRD (foundational domain).
+**Status:** current as of wire version 2 (Style and Visibility). No single PRD (foundational domain).
 **Priming skill:** [`.claude/skills/producer-protocol/SKILL.md`](../.claude/skills/producer-protocol/SKILL.md)
 
 ## What it is
 
 `Client/LcdHubClient.cs` is the whole contract. Producers copy it or `<Compile Include>` it, and
 the hub compiles the same file for its side, so the two sides can't disagree. This domain owns how
-frames and panel lists cross the pipe. It does *not* choose between producers (see
+frames, panel lists, the shared style and visibility cross the pipe. It does *not* choose between producers (see
 [scheduling](scheduling.md)) or know anything about devices (see [panels](panels.md)).
 
 ## Core entities & relationships
 
 `LcdHubClient --pipe "LcdHub"--> PipeServer -> Hub.Connect / Offer / Disconnect`
 
-- **`LcdHubWire`**: message framing, the message types (Hello, Panels, Frame) and the pipe
-  options. The doc comment on the class is the format spec.
+- **`LcdHubWire`**: message framing, the message types (Hello, Panels, Frame, Style,
+  Visibility) and the pipe options. The doc comment on the class is the format spec.
 - **`LcdHubClient`**: a producer's connection. It reconnects by itself, keeps only the newest
-  frame per panel, and raises `PanelsChanged`.
+  frame per panel, and raises `PanelsChanged`, `StyleChanged` and `VisibilityChanged`.
+- **`LcdHubStyle`**: dark or light, plus background, text and accent colours that every producer
+  is asked to draw in, so the rotation doesn't jar. The hub makes it in `Style.cs` (`HubStyle`).
+- **`LcdHubVisibility`**: per panel, Shown, Next or Hidden. Producers skip drawing a Hidden panel
+  unless they are raising or standing down an alert.
 - **`LcdHubPanel`**: id, width and height as announced to producers.
 - **`PipeServer`**: an accept loop with one thread per producer. It checks the hello, then hands
   each frame to `Hub.Offer`.
 
 ## Invariants & rules
 
-- **Any change to the wire bumps `LcdHubWire.Version`.** The hub refuses any other version, so an
-  old producer quietly stays off the panels instead of corrupting them.
+- **Additions never break a peer.** Each side ignores message types it doesn't know and bytes
+  after the fields it reads, so a new message or a field appended to an existing one only raises
+  `Version`. Only a change an older peer would misread raises `MinVersion`, below which the hub
+  refuses a producer. The hub sends Style and Visibility to every producer; a v1 client ignores them.
+- **Visibility defaults to Next on the client,** both before the hub has said anything and after
+  every Panels message, so a hub too old to send it still gets every frame. The hub keeps
+  `Producer.Told` and sends only changes, and clears it when it sends Panels.
+- **A producer without a frame on a panel is told Next,** so a new producer still gets into the
+  rotation. Otherwise: Shown for the pick, Next for what `Rotation.Pick` would choose when the
+  turn ends, and Hidden otherwise, including while locked or with the monitors off.
+- **The send loop ends when the reader thread does.** `IsConnected` only turns false after a
+  failed write, so a producer with nothing new to send would never notice a hub restart.
 - **Both pipe ends open with `LcdHubWire.PipeOptions`** (`CurrentUserOnly | Asynchronous`).
   Without overlapped I/O, a write waits behind the pending read on the other thread: frames
   stall, and the hub's Panels broadcast under its gate can hang the UI thread.
@@ -68,7 +82,7 @@ frames and panel lists cross the pipe. It does *not* choose between producers (s
 
 ## Executable references
 
-`Tests/Program.cs`, the wire checks: hello, panels and full-frame and empty-frame round-trips,
+`Tests/Program.cs`, the wire checks: hello, panels, style, visibility, and full-frame and empty-frame round-trips, trailing fields ignored,
 back-to-back framing, clean EOF → null, truncated message throws, absurd length refused.
 
 ## Links

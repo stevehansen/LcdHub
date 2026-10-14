@@ -11,6 +11,27 @@ namespace LcdHub.Client;
 public sealed record LcdHubPanel(string Id, int Width, int Height);
 
 /// <summary>
+/// The look the hub asks every producer to share, so pictures don't jar when the panel rotates
+/// from one to the next. Colours are 0x00RRGGBB, as in a frame's pixels.
+/// </summary>
+public sealed record LcdHubStyle(bool Light, uint Background, uint Text, uint Accent)
+{
+    /// <summary>Until the hub says otherwise (or for good, from a hub too old to say).</summary>
+    public static readonly LcdHubStyle Default = new(false, 0x141414, 0xE6E6E6, 0x3B82F6);
+}
+
+/// <summary>Whether a producer's frame for a panel is worth drawing now.</summary>
+public enum LcdHubVisibility : byte
+{
+    /// <summary>Not on screen nor up next: the hub keeps the last frame; skip drawing unless alerting.</summary>
+    Hidden,
+    /// <summary>Up next, or the hub has no frame from this producer yet: keep it fresh.</summary>
+    Next,
+    /// <summary>On the panel now.</summary>
+    Shown,
+}
+
+/// <summary>
 /// Connects a producer to the LCD Hub and keeps it connected: retries while the hub isn't
 /// running, reconnects when it restarts. The producer draws a finished frame per panel and
 /// hands it to <see cref="Send"/>; the hub decides when it is on screen — rotating it with
@@ -21,6 +42,11 @@ public sealed record LcdHubPanel(string Id, int Width, int Height);
 /// sent before, so the handler should redraw for every panel. It runs on the client's own
 /// thread. Sending never blocks on the hub: only the newest frame per panel is kept, and
 /// frames sent while disconnected are dropped.
+/// </para>
+/// <para>
+/// Optional, to fit in and save work: draw in <see cref="Style"/>'s colours, and skip drawing
+/// a panel while <see cref="Visibility"/> says Hidden, except to raise an alert. Both
+/// change events also run on the client's thread.
 /// </para>
 /// </summary>
 public sealed class LcdHubClient : IDisposable
@@ -34,6 +60,8 @@ public sealed class LcdHubClient : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly Thread _thread;
     private IReadOnlyList<LcdHubPanel> _panels = [];
+    private readonly Dictionary<string, LcdHubVisibility> _visibility = new();
+    private LcdHubStyle _style = LcdHubStyle.Default;
 
     /// <param name="name">Shown in the hub's menu and remembered there, so keep it stable.</param>
     public LcdHubClient(string name)
@@ -49,6 +77,23 @@ public sealed class LcdHubClient : IDisposable
     public IReadOnlyList<LcdHubPanel> Panels
     {
         get { lock (_gate) return _panels; }
+    }
+
+    /// <summary>Fires on the client's thread when the hub's style changes.</summary>
+    public event Action<LcdHubStyle>? StyleChanged;
+
+    public LcdHubStyle Style
+    {
+        get { lock (_gate) return _style; }
+    }
+
+    /// <summary>Fires on the client's thread when a panel's <see cref="Visibility"/> changes.</summary>
+    public event Action<string, LcdHubVisibility>? VisibilityChanged;
+
+    /// <summary>Next until the hub says otherwise, so a hub too old to say gets every frame.</summary>
+    public LcdHubVisibility Visibility(string panelId)
+    {
+        lock (_gate) return _visibility.GetValueOrDefault(panelId, LcdHubVisibility.Next);
     }
 
     /// <summary>
@@ -90,7 +135,9 @@ public sealed class LcdHubClient : IDisposable
                 LcdHubWire.Write(pipe, LcdHubWire.Hello(_name));
                 var reader = new Thread(() => ReadPanels(pipe)) { IsBackground = true, Name = "LcdHubClient reader" };
                 reader.Start();
-                while (pipe.IsConnected && !_stop.IsCancellationRequested)
+                // The reader is first to see the hub go: IsConnected only turns false on a failed
+                // write, and a producer with nothing new to send wouldn't write for a long time.
+                while (reader.IsAlive && !_stop.IsCancellationRequested)
                 {
                     _wake.WaitOne(1000);
                     List<KeyValuePair<string, (uint[] Pixels, bool Alert)>> frames;
@@ -115,9 +162,13 @@ public sealed class LcdHubClient : IDisposable
     {
         try
         {
+            // Types this client doesn't know are from a newer hub, and ignored.
             while (LcdHubWire.Read(pipe) is { } message)
-                if (message.Type == LcdHubWire.MsgPanels)
-                    SetPanels(LcdHubWire.ParsePanels(message.Body));
+            {
+                if (message.Type == LcdHubWire.MsgPanels) SetPanels(LcdHubWire.ParsePanels(message.Body));
+                else if (message.Type == LcdHubWire.MsgStyle) SetStyle(LcdHubWire.ParseStyle(message.Body));
+                else if (message.Type == LcdHubWire.MsgVisibility) SetVisibility(LcdHubWire.ParseVisibility(message.Body));
+            }
         }
         catch (IOException) { }
         catch (ObjectDisposedException) { }
@@ -131,8 +182,25 @@ public sealed class LcdHubClient : IDisposable
             if (panels.Count == 0 && _panels.Count == 0) return;
             _panels = panels;
             _pending.Clear();
+            _visibility.Clear();
         }
         PanelsChanged?.Invoke(panels);
+    }
+
+    private void SetStyle(LcdHubStyle style)
+    {
+        lock (_gate)
+        {
+            if (style == _style) return;
+            _style = style;
+        }
+        StyleChanged?.Invoke(style);
+    }
+
+    private void SetVisibility((string PanelId, LcdHubVisibility Visibility) v)
+    {
+        lock (_gate) _visibility[v.PanelId] = v.Visibility;
+        VisibilityChanged?.Invoke(v.PanelId, v.Visibility);
     }
 }
 
@@ -146,7 +214,15 @@ public sealed class LcdHubClient : IDisposable
 /// count, then per panel a string id, u16 width, u16 height.</item>
 /// <item><see cref="MsgFrame"/>, producer → hub: string panel id, u8 flags (bit 0 alert),
 /// then the panel's width×height u32 top-down BGRX pixels, or none to withdraw the frame.</item>
+/// <item><see cref="MsgStyle"/>, hub → producer, after hello and on every change (v2): u8
+/// flags (bit 0 light), u32 background, u32 text, u32 accent.</item>
+/// <item><see cref="MsgVisibility"/>, hub → producer, on every change (v2): string panel id,
+/// u8 <see cref="LcdHubVisibility"/>. A Panels message resets every panel to Next.</item>
 /// </list>
+/// Additions never break a peer: each side ignores message types it doesn't know and bytes
+/// after the fields it reads. <see cref="Version"/> says which messages a producer knows; only
+/// a change an older peer would misread raises <see cref="MinVersion"/>, below which the hub
+/// refuses a producer.
 /// </summary>
 public static class LcdHubWire
 {
@@ -154,9 +230,9 @@ public static class LcdHubWire
     // Overlapped on both ends: each side reads on one thread while writing on another, and
     // a synchronous pipe handle makes the write wait for the pending read.
     public const PipeOptions PipeOptions = System.IO.Pipes.PipeOptions.CurrentUserOnly | System.IO.Pipes.PipeOptions.Asynchronous;
-    public const ushort Version = 1;
-    public const byte MsgHello = 1, MsgPanels = 2, MsgFrame = 3;
-    private const byte FlagAlert = 1;
+    public const ushort Version = 2, MinVersion = 1;
+    public const byte MsgHello = 1, MsgPanels = 2, MsgFrame = 3, MsgStyle = 4, MsgVisibility = 5;
+    private const byte FlagAlert = 1, FlagLight = 1;
     // A 1920×1080 frame with room to spare; anything bigger is a corrupt stream.
     private const int MaxMessageBytes = 16 << 20;
 
@@ -190,6 +266,36 @@ public static class LcdHubWire
         w.U8(alert ? FlagAlert : (byte)0);
         w.Pixels(pixels);
         return w.Done();
+    }
+
+    public static byte[] Style(LcdHubStyle style)
+    {
+        var w = new Writer(MsgStyle);
+        w.U8(style.Light ? FlagLight : (byte)0);
+        w.U32(style.Background);
+        w.U32(style.Text);
+        w.U32(style.Accent);
+        return w.Done();
+    }
+
+    public static byte[] Visibility(string panelId, LcdHubVisibility visibility)
+    {
+        var w = new Writer(MsgVisibility);
+        w.Str(panelId);
+        w.U8((byte)visibility);
+        return w.Done();
+    }
+
+    public static LcdHubStyle ParseStyle(byte[] body)
+    {
+        var r = new Reader(body);
+        return new LcdHubStyle((r.U8() & FlagLight) != 0, r.U32(), r.U32(), r.U32());
+    }
+
+    public static (string PanelId, LcdHubVisibility Visibility) ParseVisibility(byte[] body)
+    {
+        var r = new Reader(body);
+        return (r.Str(), (LcdHubVisibility)r.U8());
     }
 
     public static (ushort Version, string Name) ParseHello(byte[] body)
@@ -268,6 +374,13 @@ public static class LcdHubWire
             _ms.Write(b);
         }
 
+        public void U32(uint v)
+        {
+            Span<byte> b = stackalloc byte[4];
+            BinaryPrimitives.WriteUInt32LittleEndian(b, v);
+            _ms.Write(b);
+        }
+
         public void Str(string s)
         {
             var bytes = Encoding.UTF8.GetBytes(s);
@@ -300,6 +413,13 @@ public static class LcdHubWire
         {
             var v = BinaryPrimitives.ReadUInt16LittleEndian(body.AsSpan(_pos, 2));
             _pos += 2;
+            return v;
+        }
+
+        public uint U32()
+        {
+            var v = BinaryPrimitives.ReadUInt32LittleEndian(body.AsSpan(_pos, 4));
+            _pos += 4;
             return v;
         }
 

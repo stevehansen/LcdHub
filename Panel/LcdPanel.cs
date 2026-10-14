@@ -35,6 +35,8 @@ internal sealed class LcdPanel : IDisposable
     // TRCC never sends a JPEG this big, and the 9.16" silently keeps its previous picture
     // when given one.
     private const int MaxJpegBytes = 450_000;
+    // How long a fade from one picture to the next takes; the steps come as fast as the link allows.
+    private const int FadeMs = 400;
 
     // The 9.16"'s device interface, declared in its MS OS 2.0 descriptors.
     private static readonly Guid LyInterface = new("3876E417-E089-4BCC-BBF8-47ABA55E46FB");
@@ -44,7 +46,7 @@ internal sealed class LcdPanel : IDisposable
     private readonly ManualResetEventSlim _stopped = new(false);
     private readonly Thread _thread;
     private uint[]? _pendingPixels;
-    private bool _pendingMotion;
+    private bool _pendingMotion, _pendingFade;
 
     /// <summary>Starts driving the device; the first frame goes out once it answers.</summary>
     public LcdPanel(LcdDevice device)
@@ -77,15 +79,19 @@ internal sealed class LcdPanel : IDisposable
     }
 
     /// <summary>
-    /// Queues a Width×Height top-down BGRX frame. Takes ownership of the array. Only the newest
+    /// Queues a Width×Height top-down BGRX frame. Keeps the array and never changes it, so the
+    /// caller mustn't either. Only the newest
     /// frame is kept, so a caller outrunning the panel just loses frames. <paramref name="motion"/>
-    /// marks one of a moving sequence, which trades sharpness for frame rate.
+    /// marks one of a moving sequence, which trades sharpness for frame rate. <paramref name="fade"/>
+    /// blends over from whatever is on the panel, mid-fade included, instead of cutting.
     /// </summary>
-    public void Present(uint[] pixels, bool motion = false)
+    public void Present(uint[] pixels, bool motion = false, bool fade = false)
     {
         if (pixels.Length != Width * Height) throw new ArgumentException("frame size", nameof(pixels));
         lock (_gate)
         {
+            // A fade asked for stays asked for when a newer frame replaces this one unseen.
+            _pendingFade = fade || (_pendingFade && _pendingPixels is not null);
             _pendingPixels = pixels;
             _pendingMotion = motion;
         }
@@ -114,6 +120,11 @@ internal sealed class LcdPanel : IDisposable
         Link? link = null;
         byte[]? frame = null;
         long lastDumpMs = 0;
+        // What is on the panel, upright, and while fading, what it fades between.
+        uint[]? shown = null, fadeFrom = null, fadeTo = null;
+        bool fadeToMotion = false;
+        long fadeStart = 0;
+        var fadeSteps = 0;
         try
         {
             while (!_stopped.IsSet)
@@ -126,10 +137,34 @@ internal sealed class LcdPanel : IDisposable
                 }
 
                 uint[]? pixels;
-                bool motion;
-                lock (_gate) { pixels = _pendingPixels; motion = _pendingMotion; _pendingPixels = null; }
-                if (pixels is not null && Encode(pixels, motion, link.UpsideDown, ref lastDumpMs) is { } jpeg)
-                    frame = link.Frame(jpeg);
+                bool motion, fade;
+                lock (_gate)
+                {
+                    (pixels, motion, fade) = (_pendingPixels, _pendingMotion, _pendingFade);
+                    (_pendingPixels, _pendingFade) = (null, false);
+                }
+                if (pixels is not null)
+                {
+                    if (fade && shown is not null) (fadeFrom, fadeTo, fadeToMotion, fadeStart, fadeSteps) = (shown, pixels, motion, Environment.TickCount64, 0);
+                    else fadeTo = null;
+                }
+                if (fadeTo is not null)
+                {
+                    var t = (Environment.TickCount64 - fadeStart) / (double)FadeMs;
+                    if (t >= 1)
+                    {
+                        (pixels, motion, fadeTo) = (fadeTo, fadeToMotion, null);
+                        Diagnose.Log($"lcd {Device.Id}: faded in {fadeSteps} steps");
+                    }
+                    else (pixels, motion, fadeSteps) = (Blend(fadeFrom!, fadeTo, t), true, fadeSteps + 1);
+                }
+                if (pixels is not null)
+                {
+                    shown = pixels;
+                    // Encode turns an upside-down panel's frame over in place; keep shown upright.
+                    var encoded = link.UpsideDown ? (uint[])pixels.Clone() : pixels;
+                    if (Encode(encoded, motion, link.UpsideDown, ref lastDumpMs) is { } jpeg) frame = link.Frame(jpeg);
+                }
 
                 if (frame is not null && !link.Write(frame))
                 {
@@ -138,7 +173,8 @@ internal sealed class LcdPanel : IDisposable
                     link = null;
                     continue;
                 }
-                _wake.WaitOne(ResendMs);
+                // Mid-fade the next step goes out as soon as this one has.
+                if (fadeTo is null) _wake.WaitOne(ResendMs);
             }
         }
         catch (Exception ex)
@@ -149,6 +185,21 @@ internal sealed class LcdPanel : IDisposable
         {
             link?.Dispose();
         }
+    }
+
+    /// <summary>from → to by t (0..1), per channel.</summary>
+    private static uint[] Blend(uint[] from, uint[] to, double t)
+    {
+        var w = (uint)(t * 256);
+        var v = 256 - w;
+        var mixed = new uint[to.Length];
+        for (int i = 0; i < mixed.Length; i++)
+        {
+            uint a = from[i], b = to[i];
+            mixed[i] = ((((a & 0xFF00FF) * v + (b & 0xFF00FF) * w) >> 8) & 0xFF00FF)
+                     | ((((a & 0x00FF00) * v + (b & 0x00FF00) * w) >> 8) & 0x00FF00);
+        }
+        return mixed;
     }
 
     private byte[]? Encode(uint[] pixels, bool motion, bool upsideDown, ref long lastDumpMs)

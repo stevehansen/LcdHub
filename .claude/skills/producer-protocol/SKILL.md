@@ -1,6 +1,6 @@
 ---
 name: producer-protocol
-description: Prime on the LcdHub producer protocol before working on it: LcdHubClient, LcdHubWire (Hello, Panels and Frame messages), LcdHubPanel, PipeServer, the version number, frame size validation, reconnects and PanelsChanged. Use when the task touches the named pipe, the wire format, writing or migrating a producer app, alerts sent by an app, or "frames don't arrive". Not for choosing between producers (see scheduling) or USB devices (see panels).
+description: Prime on the LcdHub producer protocol before working on it: LcdHubClient, LcdHubWire (Hello, Panels, Frame, Style and Visibility messages), LcdHubPanel, PipeServer, the version number, frame size validation, reconnects and PanelsChanged. Use when the task touches the named pipe, the wire format, writing or migrating a producer app, alerts sent by an app, or "frames don't arrive". Not for choosing between producers (see scheduling) or USB devices (see panels).
 ---
 
 # Producer protocol: priming
@@ -11,7 +11,8 @@ description: Prime on the LcdHub producer protocol before working on it: LcdHubC
 
 ## Core invariants (get these right)
 
-- **Any wire change bumps `LcdHubWire.Version`.** The hub refuses other versions.
+- **Additions are backward-compatible.** Unknown message types and trailing bytes are ignored, so they only raise `Version`. Raise `MinVersion` (the hub refuses below it) only for a change an old peer would misread.
+- **Visibility is Next until the hub says otherwise.** Skip drawing only when it is Hidden, and still send to raise or clear an alert.
 - **Both ends use `LcdHubWire.PipeOptions` (`Asynchronous`).** With synchronous handles, writes stall behind reads.
 - **A frame is exactly the panel's width × height, or empty to withdraw** (`Clear`). Other sizes are dropped silently.
 - **A Panels message means "redraw everything".** The hub has forgotten your frames.

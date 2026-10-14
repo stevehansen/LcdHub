@@ -1,19 +1,23 @@
 using System.Globalization;
+using LcdHub.Client;
 
 namespace LcdHub;
 
 /// <summary>
 /// The hub's own screen, for when nothing else is on and while the session is locked: the time,
 /// the date and the weather under a sky that follows the day (<see cref="Theme"/>), with the
-/// season's or a holiday's particles. Each part can be switched off (<see cref="TodaySettings"/>).
-/// It changes at most once a minute, plus when the weather does.
+/// season's or a holiday's particles. Each part can be switched off (<see cref="TodaySettings"/>);
+/// without the sky it wears the producers' <see cref="LcdHubStyle"/>. It changes at most once a
+/// minute, plus when the weather or the style does.
 /// </summary>
 internal static unsafe class Today
 {
-    private const uint Text = 0xFFFFFF, SubText = 0xE6EAF0, Muted = 0xCDD4DC;
-
-    public static uint[]? Paint(int w, int h, DateTime now, Weather? weather, TodaySettings opt)
+    public static uint[]? Paint(int w, int h, DateTime now, Weather? weather, TodaySettings opt, LcdHubStyle style)
     {
+        // On the sky, white; on the style's background, its text and two fainter shades of it.
+        var (text, subText, muted) = opt.Sky
+            ? (0xFFFFFFu, 0xE6EAF0u, 0xCDD4DCu)
+            : (style.Text, Mix(style.Background, style.Text, 0.85), Mix(style.Background, style.Text, 0.7));
         var dc = NativeMethods.CreateCompatibleDC(IntPtr.Zero);
         var dib = Gdi.CreateTopDownDib(dc, w, h, out var bits);
         if (dib == IntPtr.Zero)
@@ -30,7 +34,7 @@ internal static unsafe class Today
             var s = h / 240.0;
 
             if (opt.Sky) Gradient(px, w, h, theme.SkyTop, theme.SkyBottom);
-            else px.Clear();
+            else px.Fill(style.Background);
             if (opt.Effects)
             {
                 var seed = now.Year * 1000 + now.DayOfYear;
@@ -50,12 +54,12 @@ internal static unsafe class Today
             var y = bh / 2 - lines / 2;
             var culture = CultureInfo.CurrentCulture;
             DrawText(dc, now.ToString("HH:mm", culture),
-                bw / 2, y - big / 6, big, Text, bold: true);
+                bw / 2, y - big / 6, big, text, bold: true);
             y += big;
             if (opt.Date)
             {
                 DrawText(dc, $"{now.ToString("dddd", culture)} {now.ToString(culture.DateTimeFormat.MonthDayPattern, culture)}",
-                    bw / 2, y, small, SubText);
+                    bw / 2, y, small, subText);
                 y += small * 3 / 2;
             }
             if (holiday is not null) DrawText(dc, holiday, bw / 2, y, small, theme.Accent, bold: true);
@@ -63,14 +67,14 @@ internal static unsafe class Today
             if (weather is not null)
             {
                 int wx = wide ? bw + bw / 2 : bw / 2, wy = wide ? 0 : bh;
-                if (wide) Box(px, w, h, bw, h / 8, Math.Max(1, w / 640), h * 3 / 4, 0xFFFFFF, 0.15);
+                if (wide) Box(px, w, h, bw, h / 8, Math.Max(1, w / 640), h * 3 / 4, text, 0.15);
                 if (opt.Effects) SunArc(px, w, h, s, wx, wy + bh - small * 2, Math.Min(bw / 2 - small, bh - small * 3), theme);
-                DrawText(dc, weather.Place, wx, wy + bh / 12, small, Muted);
-                DrawText(dc, $"{weather.Temperature.ToString("0", culture)}°", wx, wy + bh / 2 - big * 3 / 5, big, Text, bold: true);
-                DrawText(dc, Describe(weather.Code), wx, wy + bh / 2 + big / 2, small, weather.Code >= 95 ? 0xFF6060u : SubText);
+                DrawText(dc, weather.Place, wx, wy + bh / 12, small, muted);
+                DrawText(dc, $"{weather.Temperature.ToString("0", culture)}°", wx, wy + bh / 2 - big * 3 / 5, big, text, bold: true);
+                DrawText(dc, Describe(weather.Code), wx, wy + bh / 2 + big / 2, small, weather.Code >= 95 ? 0xFF6060u : subText);
                 DrawText(dc, $"↑ {weather.Max.ToString("0", culture)}°   ↓ {weather.Min.ToString("0", culture)}°   " +
                              $"{weather.Wind.ToString("0", culture)} {Strings.KilometresPerHour}",
-                    wx, wy + bh - bh / 12 - small, small, Muted);
+                    wx, wy + bh - bh / 12 - small, small, muted);
             }
 
             NativeMethods.GdiFlush();

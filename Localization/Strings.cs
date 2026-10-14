@@ -21,6 +21,12 @@ internal static class Strings
     public const string StartWithWindows = "Start with Windows";
     public const string Exit = "Exit";
 
+    // The look producers are asked to share.
+    public const string Style = "Appearance";
+    public const string StyleSystem = "Follow Windows";
+    public const string StyleDark = "Dark";
+    public const string StyleLight = "Light";
+
     // The Today menu (hub-wide).
     public const string TodayWeatherOff = "Weather (set weather_location in settings.json)";
     public const string TodayWeatherIn = "Weather in";

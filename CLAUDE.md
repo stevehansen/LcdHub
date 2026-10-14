@@ -14,7 +14,7 @@ Target: `net10.0-windows` WinExe. Win32 only (no WinForms/WPF), AOT-friendly (`L
 
 The hub is the single owner of the USB LCDs. WinUSB is exclusive and HID frames would interleave, so no other process may drive them. Apps ("producers") render whole frames at each panel's size and push them over a pipe. The hub only schedules what to show.
 
-- `Client/LcdHubClient.cs`: the entire producer contract (client + `LcdHubWire`). Producers copy it or `<Compile Include>` it, and the hub compiles the same file. **Changing the wire means bumping `LcdHubWire.Version`.** The hub refuses other versions.
+- `Client/LcdHubClient.cs`: the entire producer contract (client + `LcdHubWire`). Producers copy it or `<Compile Include>` it, and the hub compiles the same file. Additions (new message types, appended fields) are ignored by older peers and only raise `LcdHubWire.Version`. A change an old peer would misread raises `MinVersion`, and the hub refuses producers below it.
 - `PipeServer.cs`: the `LcdHub` pipe uses `CurrentUserOnly` and runs one thread per producer. Those threads only call `Hub.Connect/Offer/Disconnect`.
 - `Hub.cs`: the state and scheduling.
   - A single `_gate` guards the panel slots, the producers and their frames.

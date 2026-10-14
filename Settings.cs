@@ -34,12 +34,22 @@ internal sealed class TodaySettings
     [JsonPropertyName("effects")] public bool Effects { get; set; } = true;
 }
 
+/// <summary>The look producers are asked to share (<see cref="HubStyle"/>).</summary>
+internal sealed class StyleSettings
+{
+    /// <summary><see cref="HubStyle.System"/> follows Windows' app mode; or dark or light.</summary>
+    [JsonPropertyName("mode")] public string Mode { get; set; } = HubStyle.System;
+    /// <summary>"#RRGGBB"; without one, Windows' accent colour.</summary>
+    [JsonPropertyName("accent")] public string? Accent { get; set; }
+}
+
 internal sealed class HubSettings
 {
     public const int DefaultRotateSeconds = 10;
 
     [JsonPropertyName("rotate_seconds")] public int RotateSeconds { get; set; } = DefaultRotateSeconds;
     [JsonPropertyName("today")] public TodaySettings Today { get; set; } = new();
+    [JsonPropertyName("style")] public StyleSettings Style { get; set; } = new();
     [JsonPropertyName("panels")] public Dictionary<string, PanelSettings> Panels { get; set; } = new();
 
     private static string FilePath => Path.Combine(

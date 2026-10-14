@@ -34,9 +34,11 @@ public static class Sample
             lock (gate)
             {
                 if (!hasData) return;
+                // A sample redraws once a minute at most, so it ignores Visibility: a producer
+                // that draws every second skips the panels where it is Hidden.
                 foreach (var panel in client.Panels)
                 {
-                    using var canvas = new Canvas(panel.Width, panel.Height);
+                    using var canvas = new Canvas(panel.Width, panel.Height, client.Style);
                     var alert = draw(canvas, data!);
                     if (alert is null) client.Clear(panel.Id);
                     else client.Send(panel.Id, canvas.Pixels(), alert.Value);
@@ -45,6 +47,7 @@ public static class Sample
         }
 
         client.PanelsChanged += _ => Push();
+        client.StyleChanged += _ => Push();
         if (redraw is { } r)
             _ = Task.Run(async () =>
             {
