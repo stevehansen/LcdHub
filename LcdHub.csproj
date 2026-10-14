@@ -14,9 +14,9 @@
     <UseWPF>false</UseWPF>
     <InvariantGlobalization>false</InvariantGlobalization>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
     <Product>LCD Hub</Product>
     <Description>Drives Thermalright USB LCDs for any app that sends it frames</Description>
   </PropertyGroup>
