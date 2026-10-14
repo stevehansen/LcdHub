@@ -61,11 +61,21 @@ frames, panel lists, the shared style and visibility cross the pipe. It does *no
 - **Messages are bounded** (`MaxMessageBytes`). A bad length or truncated body throws
   `IOException`, which ends that one producer's connection only.
 
+## Launched producers
+
+`Launcher.cs` starts the `launch` entries in settings (path and args) and keeps them running.
+After a run under 1 minute the retry delay doubles from 5 s up to 5 minutes; a longer run
+resets it. An exe that is already running elsewhere (same full path) is checked again every
+30 s instead of being started twice, because single-instance apps would otherwise exit and
+retry forever. Apps are assigned to a `KILL_ON_JOB_CLOSE` job whose handle is never closed, so
+the OS ends them with the hub. It doesn't change the pipe: a launched app connects like any other.
+
 ## Key files
 
 | File | Role |
 |---|---|
 | `Client/LcdHubClient.cs` | `LcdHubClient`, `LcdHubPanel`, `LcdHubWire` (format doc on the class) |
+| `Launcher.cs` | Starts and restarts the `launch` apps, inside a kill-on-close job |
 | `PipeServer.cs` | Accept loop, hello and version check, frames → `Hub.Offer` |
 | `Hub.cs` | `Connect` (sends the first Panels message, dedupes names), `Offer`, `Disconnect` |
 

@@ -21,6 +21,7 @@
 | **Frame** | One complete top-down BGRX picture at exactly a panel's size, from a producer | image, bitmap, picture, screen |
 | **Alert** | A flag on a frame asking the hub to show it ahead of the rotation | priority, urgent, focus |
 | **Withdraw** | Sending an empty frame: the producer has nothing for that panel until its next frame (`Clear`) | hide, remove |
+| **Launched producer** | A producer the hub starts with itself and restarts when it exits (`launch` in settings) | plugin, service, child |
 | **Style** | The dark or light look and colours the hub asks every producer to draw in | theme, palette, skin |
 | **Visibility** | What the hub tells a producer about one panel: Shown, Next or Hidden, so it can skip drawing | active, focus, current |
 | **Panel list** | The panels the hub announces to producers; any change makes it forget their frames | panels message |

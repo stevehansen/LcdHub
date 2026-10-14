@@ -7,6 +7,19 @@ namespace LcdHub;
 // ------ Types ------
 
 [StructLayout(LayoutKind.Sequential)]
+public struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+{
+    public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass, SchedulingClass;
+    public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct RECT
 {
     public int Left;
@@ -173,6 +186,8 @@ public static class Win32Consts
 
     // Timers
     public const uint TIMER_TICK = 1;
+    public const int JobObjectExtendedLimitInformation = 9;
+    public const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
 
     // Message box
     public const uint MB_OK = 0x0;
@@ -245,6 +260,17 @@ internal static partial class NativeMethods
     // ---- kernel32 ----
     [LibraryImport(KERNEL32, EntryPoint = "GetModuleHandleW", StringMarshalling = StringMarshalling.Utf16)]
     public static partial IntPtr GetModuleHandleW(string? lpModuleName);
+
+    [LibraryImport(KERNEL32, EntryPoint = "CreateJobObjectW")]
+    public static partial IntPtr CreateJobObjectW(IntPtr attributes, IntPtr name);
+
+    [LibraryImport(KERNEL32, EntryPoint = "SetInformationJobObject")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetInformationJobObject(IntPtr job, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, uint length);
+
+    [LibraryImport(KERNEL32, EntryPoint = "AssignProcessToJobObject")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
     [LibraryImport(KERNEL32, EntryPoint = "CreateMutexW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     public static partial IntPtr CreateMutexW(IntPtr attributes, [MarshalAs(UnmanagedType.Bool)] bool initialOwner, string name);

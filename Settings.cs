@@ -43,6 +43,14 @@ internal sealed class StyleSettings
     [JsonPropertyName("accent")] public string? Accent { get; set; }
 }
 
+/// <summary>A producer the hub starts with itself and keeps running (<see cref="Launcher"/>).</summary>
+internal sealed class LaunchSettings
+{
+    /// <summary>The app's own exe; environment variables like %USERPROFILE% are expanded.</summary>
+    [JsonPropertyName("path")] public string? Path { get; set; }
+    [JsonPropertyName("args")] public string? Args { get; set; }
+}
+
 internal sealed class HubSettings
 {
     public const int DefaultRotateSeconds = 10;
@@ -50,6 +58,7 @@ internal sealed class HubSettings
     [JsonPropertyName("rotate_seconds")] public int RotateSeconds { get; set; } = DefaultRotateSeconds;
     [JsonPropertyName("today")] public TodaySettings Today { get; set; } = new();
     [JsonPropertyName("style")] public StyleSettings Style { get; set; } = new();
+    [JsonPropertyName("launch")] public List<LaunchSettings> Launch { get; set; } = new();
     [JsonPropertyName("panels")] public Dictionary<string, PanelSettings> Panels { get; set; } = new();
 
     private static string FilePath => Path.Combine(

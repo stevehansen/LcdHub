@@ -85,7 +85,18 @@ restart the hub:
 ```
 
 Without an `accent`, apps get the Windows accent colour.
- Running with `--diagnose` logs to
+
+To have the hub start apps with itself and keep them running, list their exes under `launch`.
+An app that exits is started again (backing off up to 5 minutes if it keeps crashing), and the
+apps close when the hub does. An app that is already running from the same exe, for example from
+its own *Start with Windows*, is left alone until it exits. Environment variables such as
+`%USERPROFILE%` are expanded, and apps inherit the hub's environment (e.g. `PHARE_API_KEY`).
+
+```json
+{ "launch": [ { "path": "C:\\Tools\\LcdHub\\Stocks.exe", "args": "MSFT NVDA --alert 5" } ] }
+```
+
+Running with `--diagnose` logs to
 `%TEMP%\lcd-hub.log` and keeps a copy of each panel's current picture at
 `%TEMP%\lcd-hub-lcd-<w>x<h>.jpg`.
 
@@ -146,6 +157,8 @@ fetch-draw-send loop ([`Sample.Run`](samples/Common/Sample.cs)):
 | ![Stocks sample](docs/images/sample-stocks.jpg) | ![Stocks sample alerting](docs/images/sample-stocks-alert.jpg) |
 
 *On a 1280×480 panel.*
+
+To keep a sample running without a console, build it and add its exe to `launch` (see above).
 
 ```powershell
 dotnet run --project samples\Stocks -- MSFT NVDA BTC-USD --alert 5

@@ -25,6 +25,7 @@ The hub is the single owner of the USB LCDs. WinUSB is exclusive and HID frames 
   - `LcdPanel`: the device drivers, JPEG and keepalive.
   - `LcdFeed`/`WindowFeed`/`VideoFeed`: hub-owned moving sources.
 - `samples/`: example producers (console apps). Each links the client plus `samples/Common` (a GDI `Canvas` and the `Sample.Run` loop). They are excluded from the hub's compile glob, and must stay free of keys and personal data.
+- `Launcher.cs`: starts the `launch` apps from settings and restarts them with backoff. They sit in a kill-on-close job object, so they end with the hub even when it is killed. It skips an exe that is already running elsewhere.
 - `MainWindow.cs`: a hidden popup window (so it gets `TaskbarCreated`), the tray menu, the WTS lock and display-state notifications, and the startup registry entry.
 
 ## Ubiquitous Language

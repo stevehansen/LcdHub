@@ -69,6 +69,7 @@ internal static class Hub
         _settings = HubSettings.Load();
         _style = HubStyle.Current(_settings.Style);
         WeatherSource.Start(_settings.Today.WeatherLocation, PostRefresh);
+        Launcher.Start(_settings.Launch);
         Tick();
     }
 
