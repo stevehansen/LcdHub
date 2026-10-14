@@ -16,6 +16,7 @@ internal sealed record Weather(string Place, double Latitude, double Temperature
 internal static class WeatherSource
 {
     private static readonly TimeSpan Every = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(1);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private static Weather? _current;
 
@@ -29,9 +30,10 @@ internal static class WeatherSource
         _ = Task.Run(async () =>
         {
             (string Name, double Lat, double Lon)? where = null;
-            using var timer = new PeriodicTimer(Every);
-            do
+            while (true)
             {
+                // A failed fetch (Open-Meteo answers 503 now and then) is retried soon, not in 15 minutes.
+                var next = RetryAfter;
                 try
                 {
                     where ??= await Geocode(place);
@@ -39,14 +41,17 @@ internal static class WeatherSource
                     {
                         Volatile.Write(ref _current, await Fetch(w.Name, w.Lat, w.Lon));
                         changed();
+                        next = Every;
                     }
+                    else next = Every; // an unknown place won't become known by asking again soon
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException
                                                or InvalidOperationException or NullReferenceException or FormatException)
                 {
                     Diagnose.LogError("weather", ex);
                 }
-            } while (await timer.WaitForNextTickAsync());
+                await Task.Delay(next);
+            }
         });
     }
 
