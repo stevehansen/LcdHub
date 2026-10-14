@@ -31,7 +31,7 @@ internal static class HubStyle
             : null;
 
     // "#RRGGBB"; anything else is ignored.
-    private static uint? ParseColor(string? hex) =>
+    public static uint? ParseColor(string? hex) =>
         hex is ['#', .. var digits] && digits.Length == 6
         && uint.TryParse(digits, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb) ? rgb : null;
 

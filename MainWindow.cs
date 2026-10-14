@@ -17,6 +17,7 @@ internal static class MainWindow
 
     // Menu ids: global ones below 1000; per panel 1000 + index*200 + item.
     private const int IdRotateFirst = 10, IdStartup = 20, IdExit = 30, IdTodayFirst = 40, IdStyleFirst = 50;
+    private const int IdSettingsOpen = 60, IdSettingsHelp = 61, IdSettingsProblems = 62;
     private static readonly string[] StyleModes = [HubStyle.System, HubStyle.Dark, HubStyle.Light];
     private const int IdPanelBase = 1000, IdPanelStride = 200;
     private const int ItemRotate = 0, ItemToday = 1, ItemVideo = 2, ItemProducer = 10, ItemPin = 50, ItemWindow = 100;
@@ -213,6 +214,17 @@ internal static class MainWindow
             NativeMethods.AppendMenuW(rotate, Checked(Hub.RotateSeconds == RotateChoices[i]), (UIntPtr)(IdRotateFirst + i),
                 $"{RotateChoices[i]} {Strings.SecondsSuffix}");
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)rotate, Strings.RotateEvery);
+        var settings = NativeMethods.CreatePopupMenu();
+        var problems = Hub.SettingsProblems.Count;
+        if (problems > 0)
+        {
+            NativeMethods.AppendMenuW(settings, Win32Consts.MF_STRING, (UIntPtr)IdSettingsProblems, $"⚠ {Strings.SettingsProblems} ({problems})…");
+            NativeMethods.AppendMenuW(settings, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
+        }
+        NativeMethods.AppendMenuW(settings, Win32Consts.MF_STRING, (UIntPtr)IdSettingsOpen, Strings.OpenSettings);
+        NativeMethods.AppendMenuW(settings, Win32Consts.MF_STRING, (UIntPtr)IdSettingsHelp, Strings.SettingsHelp);
+        NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)settings,
+            problems > 0 ? $"⚠ {Strings.Settings}" : Strings.Settings);
         NativeMethods.AppendMenuW(menu, Checked(IsStartupEnabled()), (UIntPtr)IdStartup, Strings.StartWithWindows);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_STRING, (UIntPtr)IdExit, Strings.Exit);
@@ -289,6 +301,20 @@ internal static class MainWindow
             Hub.StyleMode = StyleModes[id - IdStyleFirst];
             return;
         }
+        switch (id)
+        {
+            case IdSettingsOpen:
+                Hub.SaveSettings();
+                Open(HubSettings.FilePath);
+                return;
+            case IdSettingsHelp:
+                Open(HubSettings.HelpUrl);
+                return;
+            case IdSettingsProblems:
+                NativeMethods.MessageBoxW(hwnd, string.Join("\n\n", Hub.SettingsProblems) + "\n\n" + Strings.SettingsProblemsHint,
+                    Strings.SettingsProblems, Win32Consts.MB_OK | Win32Consts.MB_ICONWARNING);
+                return;
+        }
         if (id == IdStartup)
         {
             SetStartupEnabled(!IsStartupEnabled());
@@ -324,6 +350,17 @@ internal static class MainWindow
             case >= ItemProducer when item - ItemProducer < _menuProducers.Count:
                 Hub.ToggleProducer(slot, _menuProducers[item - ItemProducer]);
                 break;
+        }
+    }
+
+    /// <summary>Opens a file or URL with its default app; a .json without one opens in Notepad.</summary>
+    private static void Open(string target)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true }); }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            try { System.Diagnostics.Process.Start("notepad.exe", $"\"{target}\""); }
+            catch (System.ComponentModel.Win32Exception ex) { Diagnose.LogError("open " + target, ex); }
         }
     }
 

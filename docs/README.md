@@ -14,6 +14,9 @@ spec, paired with a thin agent-priming skill. For build, architecture and conven
 
 ## Other references
 
+- [`settings.md`](settings.md): the user-facing reference for every key in `settings.json`. It
+  changes together with `Settings.cs` and [`../settings.schema.json`](../settings.schema.json),
+  which a test keeps in sync with the settings classes.
 - [`../UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md): the canonical glossary. Specs link
   *down* into it.
 - [`../CLAUDE.md`](../CLAUDE.md): repo guidance (build, conventions, doc-sync rules).

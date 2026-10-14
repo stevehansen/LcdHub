@@ -74,27 +74,28 @@ The protocol notes in thermalright-trcc-linux cover many more models, and [docs/
 | **Today** ▸ | Weather, date, holiday names, sky colours and effects, on or off for every panel |
 | **Appearance** ▸ | Follow Windows, dark or light, for every app that supports it |
 | **Rotate every** ▸ | How long each app stays on screen |
+| **Settings** ▸ | Open the settings file, open the [settings reference](docs/settings.md), or see problems found in it |
 | **Start with Windows** | Adds or removes the per-user Run registry entry |
 
-Settings are stored in `%APPDATA%\LcdHub\settings.json`. For the weather, set a place there
-(the hub looks it up with [Open-Meteo](https://open-meteo.com), free and without a key) and
-restart the hub:
+Settings are stored in `%APPDATA%\LcdHub\settings.json`; **Settings ▸ Open settings file** in
+the tray opens it with every key filled in, and editors validate it against
+[`settings.schema.json`](settings.schema.json). A few things are set only there, then take
+effect after a restart of the hub:
+
+- `today.weather_location`: the place for the weather, e.g. `"Antwerp"` (looked up with
+  [Open-Meteo](https://open-meteo.com), free and without a key).
+- `style.accent`: the accent colour for every app, `"#RRGGBB"` (default: the Windows accent).
+- `launch`: apps the hub starts with itself, restarts when they exit and closes when it closes.
 
 ```json
-{ "today": { "weather_location": "Antwerp" }, "style": { "accent": "#3B82F6" } }
+{
+  "today": { "weather_location": "Antwerp" },
+  "launch": [ { "path": "C:\\Tools\\LcdHub\\Stocks.exe", "args": "MSFT NVDA --alert 5" } ]
+}
 ```
 
-Without an `accent`, apps get the Windows accent colour.
-
-To have the hub start apps with itself and keep them running, list their exes under `launch`.
-An app that exits is started again (backing off up to 5 minutes if it keeps crashing), and the
-apps close when the hub does. An app that is already running from the same exe, for example from
-its own *Start with Windows*, is left alone until it exits. Environment variables such as
-`%USERPROFILE%` are expanded, and apps inherit the hub's environment (e.g. `PHARE_API_KEY`).
-
-```json
-{ "launch": [ { "path": "C:\\Tools\\LcdHub\\Stocks.exe", "args": "MSFT NVDA --alert 5" } ] }
-```
+Every key is described in [docs/settings.md](docs/settings.md). Problems in the file (a typo,
+a bad value, a missing exe) show as ⚠ under **Settings** in the tray.
 
 Running with `--diagnose` logs to
 `%TEMP%\lcd-hub.log` and keeps a copy of each panel's current picture at

@@ -82,4 +82,29 @@ threw = false;
 try { LcdHubWire.Read(new MemoryStream(huge)); } catch (IOException) { threw = true; }
 Check(threw, "an absurd length is refused");
 
+// ---- settings ----
+var good = HubSettings.Parse("""{ "rotate_seconds": 15, "style": { "mode": "light", "accent": "#112233" } }""", out var unreadable);
+Check(!unreadable && good.Problems.Count == 0 && good.RotateSeconds == 15, "valid settings load without problems");
+var typo = HubSettings.Parse("""{ "today": { "wether_location": "Antwerp" }, "colour": 1 }""", out _);
+Check(typo.Problems.Count == 2 && typo.Problems.Exists(p => p.Contains("today.wether_location")), "unknown keys are reported with their path");
+Check(System.Text.Json.JsonSerializer.Serialize(typo, SettingsJsonContext.Default.HubSettings).Contains("wether_location"),
+    "unknown keys survive a save");
+var bad = HubSettings.Parse("""{ "rotate_seconds": 0, "style": { "mode": "dim", "accent": "blue" }, "launch": [ {} ] }""", out _);
+Check(bad.Problems.Count == 4 && bad.RotateSeconds == HubSettings.DefaultRotateSeconds, "bad values are reported, and repaired where needed");
+HubSettings.Parse("{ nope", out unreadable);
+Check(unreadable, "unparsable JSON is flagged, so Load keeps a copy");
+
+// Every settings property is in the schema an editor validates against, and nothing else.
+var schemaPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "settings.schema.json"));
+var schema = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(schemaPath))!;
+static string[] Keys(Type t) => t.GetProperties()
+    .Select(p => p.GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonPropertyNameAttribute), false)
+        .Cast<System.Text.Json.Serialization.JsonPropertyNameAttribute>().FirstOrDefault()?.Name)
+    .OfType<string>().Order().ToArray();
+static string[] SchemaKeys(System.Text.Json.Nodes.JsonNode node) => node["properties"]!.AsObject().Select(p => p.Key).Order().ToArray();
+var props = schema["properties"]!;
+foreach (var (node, type) in new[] { (schema, typeof(HubSettings)), (props["today"]!, typeof(TodaySettings)), (props["style"]!, typeof(StyleSettings)),
+             (props["launch"]!["items"]!, typeof(LaunchSettings)), (props["panels"]!["additionalProperties"]!, typeof(PanelSettings)) })
+    Check(SchemaKeys(node).SequenceEqual(Keys(type)), $"settings.schema.json matches {type.Name}");
+
 Console.WriteLine("All checks passed.");

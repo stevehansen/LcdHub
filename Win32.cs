@@ -192,6 +192,7 @@ public static class Win32Consts
     // Message box
     public const uint MB_OK = 0x0;
     public const uint MB_ICONERROR = 0x10;
+    public const uint MB_ICONWARNING = 0x30;
 
     // Menus
     public const uint MF_STRING = 0x0;

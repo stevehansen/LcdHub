@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/stevehansen/LcdHub/main/settings.schema.json",
+  "title": "LCD Hub settings",
+  "description": "%APPDATA%\\LcdHub\\settings.json. The tray menu writes most of it; restart the hub after editing by hand. Reference: https://github.com/stevehansen/LcdHub/blob/main/docs/settings.md",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "Lets your editor validate this file and explain each key. Rewritten on every save." },
+    "rotate_seconds": { "type": "integer", "minimum": 1, "default": 10, "description": "How long each app stays on a panel before the rotation moves on (tray: Rotate every)." },
+    "today": {
+      "type": "object",
+      "description": "What Today shows, the same on every panel (tray: Today).",
+      "additionalProperties": false,
+      "properties": {
+        "weather_location": { "type": ["string", "null"], "description": "A place name for Open-Meteo to look up, e.g. \"Antwerp\". Without one there is no weather. Needs a restart." },
+        "weather": { "type": "boolean", "default": true, "description": "Show the weather (needs weather_location)." },
+        "date": { "type": "boolean", "default": true, "description": "Show the date under the time." },
+        "holidays": { "type": "boolean", "default": true, "description": "Show a holiday's name under the date, on the day." },
+        "sky": { "type": "boolean", "default": true, "description": "Sky colours for the time of day; off uses the style's background." },
+        "effects": { "type": "boolean", "default": true, "description": "Stars, the sun arc and the season's or holiday's particles." }
+      }
+    },
+    "style": {
+      "type": "object",
+      "description": "The look every app is asked to draw in, so the rotation doesn't jar (tray: Appearance).",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["system", "dark", "light"], "default": "system", "description": "system follows Windows' app mode." },
+        "accent": { "type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$", "description": "\"#RRGGBB\". Without one, the Windows accent colour." }
+      }
+    },
+    "launch": {
+      "type": "array",
+      "description": "Apps the hub starts with itself, restarts when they exit, and closes when it closes. Needs a restart.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string", "description": "The app's own exe (not dotnet run). Environment variables like %USERPROFILE% are expanded. An exe already running is left alone until it exits." },
+          "args": { "type": ["string", "null"], "description": "Command-line arguments." }
+        }
+      }
+    },
+    "panels": {
+      "type": "object",
+      "description": "Per panel, by id (e.g. \"0416:5302\"); written by the panel's tray menu.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "today": { "type": "boolean", "default": false, "description": "Today takes its own turn in the rotation." },
+          "hidden": { "type": "array", "items": { "type": "string" }, "description": "Apps, by name, left out of this panel's rotation." },
+          "pinned": { "type": ["string", "null"], "description": "An app, by name, kept on this panel instead of rotating; alerts still interrupt it." },
+          "video_path": { "type": ["string", "null"], "description": "A video playing on this panel instead of the rotation." }
+        }
+      }
+    }
+  }
+}

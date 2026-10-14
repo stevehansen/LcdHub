@@ -312,6 +312,12 @@ internal static class Hub
         }
     }
 
+    /// <summary>What was wrong with settings.json when the hub started.</summary>
+    public static IReadOnlyList<string> SettingsProblems => _settings.Problems;
+
+    /// <summary>Writes the settings out, every key included, so the file shows what can be set.</summary>
+    public static void SaveSettings() => _settings.Save();
+
     /// <summary><see cref="HubStyle.System"/>, dark or light.</summary>
     public static string StyleMode
     {

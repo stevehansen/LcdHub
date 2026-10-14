@@ -21,6 +21,17 @@ internal static class Strings
     public const string StartWithWindows = "Start with Windows";
     public const string Exit = "Exit";
 
+    // Settings.
+    public const string Settings = "Settings";
+    public const string OpenSettings = "Open settings file";
+    public const string SettingsHelp = "Settings help";
+    public const string SettingsProblems = "Settings problems";
+    public const string SettingsProblemsHint = "Fix settings.json and restart LCD Hub. Until then the hub uses the defaults for these.";
+    public const string SettingsUnreadable = "settings.json can't be read, so the defaults are used; the file was kept as settings.json.bad";
+    public const string SettingsUnknownKey = "Unknown setting";
+    public const string SettingsBadValue = "Invalid value";
+    public const string SettingsMissingFile = "Launch: file not found";
+
     // The look producers are asked to share.
     public const string Style = "Appearance";
     public const string StyleSystem = "Follow Windows";
