@@ -57,7 +57,7 @@ jobs:
           certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
           files-folder: ${{ github.workspace }}\artifacts
           files-folder-filter: exe
-          files-folder-recursive: true
+          files-folder-recurse: true
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
