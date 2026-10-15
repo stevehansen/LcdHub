@@ -1,6 +1,6 @@
 namespace LcdHub;
 
-/// <summary>The tray icon: a small panel outline, drawn at runtime so the repo needs no .ico.</summary>
+/// <summary>The tray icon: a small panel outline, drawn at runtime so it can switch between lit and unlit. app.ico (the exe's icon) is the same shape.</summary>
 internal static class TrayIcon
 {
     private const int Size = 32;
