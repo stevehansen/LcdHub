@@ -8,6 +8,13 @@ static void Check(bool result, string description)
     Console.WriteLine("PASS: " + description);
 }
 
+static bool Throws<T>(Action action) where T : Exception
+{
+    try { action(); }
+    catch (T) { return true; }
+    return false;
+}
+
 var interval = TimeSpan.FromSeconds(10);
 var early = TimeSpan.FromSeconds(3);
 var late = TimeSpan.FromSeconds(10);
@@ -66,6 +73,27 @@ var toast = LcdHubWire.ParseFrame(LcdHubWire.Read(new MemoryStream(LcdHubWire.Fr
 Check(toast.Toast && toast.LifetimeMs == 5000 && toast.Pixels.SequenceEqual([7u, 8u]), "a toast keeps its lifetime ahead of the pixels");
 Check(LcdHubWire.Frame("x", true, [1, 2]).Length == LcdHubWire.Frame("x", true, [1, 2], lifetimeMs: 0).Length,
     "a frame without a lifetime is byte for byte what a v2 hub reads");
+
+// The hub's read: frames straight into their pixel array, other messages as Read gives them.
+stream = new MemoryStream();
+LcdHubWire.WriteFrame(stream, "0416:5302", true, pixels);
+LcdHubWire.Write(stream, LcdHubWire.Style(LcdHubStyle.Default));
+LcdHubWire.WriteFrame(stream, "x", false, [7, 8], toast: true, lifetimeMs: 5000);
+LcdHubWire.WriteFrame(stream, "y", false, []);
+stream.Position = 0;
+var inFull = LcdHubWire.ReadIncoming(stream)!.Value.Frame!.Value;
+Check(inFull.PanelId == "0416:5302" && inFull.Alert && inFull.Pixels.SequenceEqual(pixels), "ReadIncoming reads a full frame");
+var inStyle = LcdHubWire.ReadIncoming(stream)!.Value;
+Check(inStyle.Frame is null && LcdHubWire.ParseStyle(inStyle.Message.Body) == LcdHubStyle.Default, "ReadIncoming passes other messages through");
+var inToast = LcdHubWire.ReadIncoming(stream)!.Value.Frame!.Value;
+Check(inToast.PanelId == "x" && inToast.Toast && inToast.LifetimeMs == 5000 && inToast.Pixels.SequenceEqual([7u, 8u]),
+    "ReadIncoming reads a toast's lifetime");
+Check(LcdHubWire.ReadIncoming(stream)!.Value.Frame!.Value.Pixels.Length == 0 && LcdHubWire.ReadIncoming(stream) is null,
+    "ReadIncoming reads a withdraw, then a clean end");
+var ragged = LcdHubWire.Frame("x", false, [1]);
+Array.Resize(ref ragged, ragged.Length - 1);
+System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(ragged, ragged.Length - 4);
+Check(Throws<IOException>(() => LcdHubWire.ReadIncoming(new MemoryStream(ragged))), "ReadIncoming refuses ragged pixels");
 
 var style = new LcdHubStyle(true, 0xF3F3F3, 0x1A1A1A, 0x0078D4);
 Check(LcdHubWire.ParseStyle(LcdHubWire.Read(new MemoryStream(LcdHubWire.Style(style)))!.Value.Body) == style, "style round-trips");

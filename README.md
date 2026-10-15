@@ -136,6 +136,8 @@ void RedrawAll(IReadOnlyList<LcdHubPanel> panels)
   panel's own size. The hub never scales, and it drops frames of the wrong size.
 - `Send` never blocks, and only the newest frame per panel is kept. Send whenever your
   picture changes; the hub keeps the panel alive on its own.
+- Sending many frames a second (an animation)? Draw into `lcd.Rent(p.Width, p.Height)`, which
+  recycles arrays already sent, instead of allocating each time. Don't touch an array once sent.
 - An alert lasts until you send a frame for that panel without `alert`, so send that one
   even while Hidden.
 - `lcd.Style` gives the background, text and accent colours to draw with, and whether it's light.

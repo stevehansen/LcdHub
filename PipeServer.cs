@@ -45,10 +45,9 @@ internal static class PipeServer
                 return;
             }
             producer = Hub.Connect(name, message => LcdHubWire.Write(pipe, message));
-            while (LcdHubWire.Read(pipe) is { } message)
+            while (LcdHubWire.ReadIncoming(pipe) is { } incoming)
             {
-                if (message.Type != LcdHubWire.MsgFrame) continue;
-                Hub.Offer(producer, LcdHubWire.ParseFrame(message.Body));
+                if (incoming.Frame is { } frame) Hub.Offer(producer, frame);
             }
         }
         catch (Exception ex) when (ex is IOException or ArgumentOutOfRangeException or ObjectDisposedException)

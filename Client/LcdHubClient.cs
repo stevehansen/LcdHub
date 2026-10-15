@@ -63,6 +63,10 @@ public sealed class LcdHubClient : IDisposable
     private IReadOnlyList<LcdHubPanel> _panels = [];
     private readonly Dictionary<string, LcdHubVisibility> _visibility = new();
     private LcdHubStyle _style = LcdHubStyle.Default;
+    // Arrays handed back by sending, for Rent; filled only once the producer has rented.
+    private const int PoolLimit = 6;
+    private readonly List<uint[]> _pool = [];
+    private bool _pooling;
 
     /// <param name="name">Shown in the hub's menu and remembered there, so keep it stable.</param>
     public LcdHubClient(string name)
@@ -98,7 +102,8 @@ public sealed class LcdHubClient : IDisposable
     }
 
     /// <summary>
-    /// Queues a top-down BGRX frame for a panel; takes ownership of the array. While
+    /// Queues a top-down BGRX frame for a panel; takes ownership of the array, which
+    /// <see cref="Rent"/> may hand out again once it is sent, so don't touch it after. While
     /// <paramref name="alert"/> is set the hub shows this frame in preference to rotating;
     /// send a frame without it to stand down. With <paramref name="validFor"/> the hub drops
     /// the frame once that has passed without a newer one, as if <see cref="Clear"/>ed, so a
@@ -120,9 +125,47 @@ public sealed class LcdHubClient : IDisposable
         lock (_gate)
         {
             if (_panels.Count == 0) return;
+            // Only the newest frame per panel is sent; the one it replaces is free again.
+            if (_pending.TryGetValue((panelId, toast), out var replaced)) ReturnLocked(replaced.Pixels);
             _pending[(panelId, toast)] = (pixels, alert, (uint)Math.Min(lifetime.TotalMilliseconds, uint.MaxValue));
         }
         _wake.Set();
+    }
+
+    /// <summary>
+    /// A frame array for a panel of this size, recycled from frames already sent when one is
+    /// free, so a producer sending many frames a second doesn't allocate a new one each time.
+    /// Its old contents are left in place: draw every pixel. Optional; <see cref="Send"/> takes
+    /// any array.
+    /// </summary>
+    public uint[] Rent(int width, int height)
+    {
+        var length = width * height;
+        lock (_gate)
+        {
+            _pooling = true;
+            for (var i = 0; i < _pool.Count; i++)
+            {
+                if (_pool[i].Length != length) continue;
+                var pixels = _pool[i];
+                _pool.RemoveAt(i);
+                return pixels;
+            }
+        }
+        return new uint[length];
+    }
+
+    private void Return(uint[] pixels)
+    {
+        lock (_gate) ReturnLocked(pixels);
+    }
+
+    private void ReturnLocked(uint[] pixels)
+    {
+        // Only for a producer that rents, and a few at most: one being drawn, one queued, one spare per panel.
+        if (!_pooling || pixels.Length == 0) return;
+        if (_pool.Count >= PoolLimit) _pool.RemoveAt(0);
+        _pool.Add(pixels);
     }
 
     /// <summary>
@@ -161,7 +204,10 @@ public sealed class LcdHubClient : IDisposable
                         _pending.Clear();
                     }
                     foreach (var (key, f) in frames)
-                        LcdHubWire.Write(pipe, LcdHubWire.Frame(key.PanelId, f.Alert, f.Pixels, key.Toast, f.LifetimeMs));
+                    {
+                        LcdHubWire.WriteFrame(pipe, key.PanelId, f.Alert, f.Pixels, key.Toast, f.LifetimeMs);
+                        Return(f.Pixels);
+                    }
                 }
             }
             catch (TimeoutException) { }
@@ -279,12 +325,24 @@ public static class LcdHubWire
     /// <param name="lifetimeMs">0 for a frame that stays until replaced.</param>
     public static byte[] Frame(string panelId, bool alert, uint[] pixels, bool toast = false, uint lifetimeMs = 0)
     {
-        var w = new Writer(MsgFrame, pixels.Length * 4 + 64);
+        var ms = new MemoryStream();
+        WriteFrame(ms, panelId, alert, pixels, toast, lifetimeMs);
+        return ms.ToArray();
+    }
+
+    /// <summary>Writes a <see cref="Frame"/> message straight from the pixels, without copying
+    /// them into a message buffer first.</summary>
+    public static void WriteFrame(Stream stream, string panelId, bool alert, uint[] pixels, bool toast = false, uint lifetimeMs = 0)
+    {
+        var w = new Writer(MsgFrame);
         w.Str(panelId);
         w.U8((byte)((alert ? FlagAlert : 0) | (toast ? FlagToast : 0) | (lifetimeMs > 0 ? FlagLifetime : 0)));
         if (lifetimeMs > 0) w.U32(lifetimeMs);
-        w.Pixels(pixels);
-        return w.Done();
+        // BGRX in memory is already little-endian u32 on every Windows machine.
+        var bytes = System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan());
+        stream.Write(w.Done(bytes.Length));
+        stream.Write(bytes);
+        stream.Flush();
     }
 
     public static byte[] Style(LcdHubStyle style)
@@ -361,6 +419,53 @@ public static class LcdHubWire
         return new Message(head[4], body);
     }
 
+    /// <summary>
+    /// The hub's read: like <see cref="Read"/>, but a frame's pixels are read straight into the
+    /// array the frame keeps, without a message buffer to copy them out of. Frame then holds
+    /// the frame and Message has an empty body; otherwise Frame is null.
+    /// </summary>
+    public static (Message Message, FrameMessage? Frame)? ReadIncoming(Stream stream)
+    {
+        Span<byte> head = stackalloc byte[5];
+        if (!ReadExactly(stream, head)) return null;
+        var len = BinaryPrimitives.ReadInt32LittleEndian(head);
+        if (len < 1 || len > MaxMessageBytes) throw new IOException($"bad message length {len}");
+        if (head[4] != MsgFrame)
+        {
+            var body = new byte[len - 1];
+            if (!ReadExactly(stream, body)) throw new IOException("truncated message");
+            return (new Message(head[4], body), null);
+        }
+
+        var left = len - 1;
+        Span<byte> b = stackalloc byte[4];
+        Take(stream, b[..2], ref left);
+        var idBytes = new byte[BinaryPrimitives.ReadUInt16LittleEndian(b)];
+        Take(stream, idBytes, ref left);
+        Take(stream, b[..1], ref left);
+        var flags = b[0];
+        uint lifetime = 0;
+        if ((flags & FlagLifetime) != 0)
+        {
+            Take(stream, b, ref left);
+            lifetime = BinaryPrimitives.ReadUInt32LittleEndian(b);
+        }
+        if (left % 4 != 0) throw new IOException("ragged pixel data");
+        var pixels = new uint[left / 4];
+        Take(stream, System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan()), ref left);
+        var frame = new FrameMessage(Encoding.UTF8.GetString(idBytes), (flags & FlagAlert) != 0,
+            (flags & FlagToast) != 0, lifetime, pixels);
+        return (new Message(MsgFrame, []), frame);
+    }
+
+    /// <summary>Reads exactly <paramref name="buffer"/>, within the <paramref name="left"/> bytes the message has.</summary>
+    private static void Take(Stream stream, Span<byte> buffer, ref int left)
+    {
+        if (buffer.Length > left) throw new IOException("truncated message");
+        if (!ReadExactly(stream, buffer)) throw new IOException("truncated message");
+        left -= buffer.Length;
+    }
+
     private static bool ReadExactly(Stream stream, Span<byte> buffer)
     {
         var read = 0;
@@ -411,16 +516,11 @@ public static class LcdHubWire
             _ms.Write(bytes);
         }
 
-        public void Pixels(uint[] pixels)
-        {
-            // BGRX in memory is already little-endian u32 on every Windows machine.
-            _ms.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(pixels.AsSpan()));
-        }
-
-        public byte[] Done()
+        /// <param name="following">Bytes of the message written after these, e.g. pixels.</param>
+        public byte[] Done(int following = 0)
         {
             var bytes = _ms.ToArray();
-            BinaryPrimitives.WriteInt32LittleEndian(bytes, bytes.Length - 4);
+            BinaryPrimitives.WriteInt32LittleEndian(bytes, bytes.Length - 4 + following);
             return bytes;
         }
     }

@@ -70,7 +70,11 @@ frames, panel lists, the shared style and visibility cross the pipe. It does *no
   frames. The client clears its pending frames and fires `PanelsChanged`, including on connect,
   and with an empty list on disconnect.
 - **`Send` never blocks and takes ownership of the array.** Frames sent while disconnected are
-  dropped.
+  dropped. Once a producer has called `Rent`, arrays that were sent or replaced go back to a
+  small pool (`PoolLimit`) and `Rent` hands them out again, so a producer must not touch an
+  array after sending it. Frames are written straight from the array (`WriteFrame`), not
+  copied into a message buffer first, and the hub reads them straight into the frame's array
+  (`ReadIncoming`).
 - **Messages are bounded** (`MaxMessageBytes`). A bad length or truncated body throws
   `IOException`, which ends that one producer's connection only.
 
