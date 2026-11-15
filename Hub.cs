@@ -250,8 +250,9 @@ internal static class Hub
                         if (p.FrameFor(region.Id) is not null && settings?.Hidden.Contains(p.Name) != true)
                             offers.Add(new Rotation.Offer(p.Name, p.Frames.GetValueOrDefault(region.Id)?.Alert == true, p.Toasts.ContainsKey(region.Id)));
 
+                    var elsewhere = slot.Regions.Where(r => r != region).Select(r => r.Pick).OfType<string>().ToList();
                     var pick = Rotation.Pick(offers, settings?.Pinned, settings?.Today ?? false, region.Feed is not null, _locked, _displayOff,
-                        region.Pick, TimeSpan.FromMilliseconds(now - region.PickedAt), interval, own);
+                        region.Pick, TimeSpan.FromMilliseconds(now - region.PickedAt), interval, own, elsewhere);
                     if (pick != region.Pick)
                     {
                         Diagnose.Log($"hub: {region.Id} shows {pick.TrimStart('\0')}");
@@ -260,7 +261,7 @@ internal static class Hub
                     if (region.Feed is { } feed) feed.Paused = pick != Rotation.Feed;
                     // Whatever would follow if this turn ended now.
                     var next = Rotation.Pick(offers, settings?.Pinned, settings?.Today ?? false, region.Feed is not null, _locked, _displayOff,
-                        pick, TimeSpan.MaxValue, interval, own);
+                        pick, TimeSpan.MaxValue, interval, own, elsewhere);
                     TellVisibility(region.Id, settings, pick, next);
                     if (takeover is not null) continue;
 

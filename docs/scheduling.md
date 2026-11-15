@@ -27,7 +27,7 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 - **`Producer` / `Frame`**: a connected app and its newest picture per panel. Frames are compared
   by reference, so each new frame is a new object.
 - **`Rotation.Pick`**: a pure function from (offers, Today in rotation, has feed, locked, display
-  off, current pick, time shown, interval) to the next pick.
+  off, current pick, time shown, interval, what the panel's other regions show) to the next pick.
 - **`LcdFeed`** (`VideoFeed`, `WindowFeed`): a moving picture made on its own thread at the
   region's size, which replaces that region's rotation.
 - **`HubSettings` / `PanelSettings`**: the rotation interval and the hub-wide `TodaySettings`, plus per panel or region id the Today toggle,
@@ -46,6 +46,12 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   so pins, Today, toasts and alerts are region-local; an alert never spreads to the rest of the
   panel. `Compose` stitches the regions' pictures into one panel frame, and hands a lone region
   that covers the panel straight through, uncopied.
+- **A panel's rotations don't show the same thing twice.** When a region's turn ends (or it
+  picks for the first time), the rotation takes the next producer, or Today, that no other region
+  of the panel shows; only if every other one is shown elsewhere does it take the next anyway,
+  so two regions swap rather than stick. Alerts, toasts and a pin show regardless, and a turn
+  is never cut short by another region. Regions start on the same producer and share
+  `rotate_seconds`, so without this they would run in lockstep.
 - **Today is the floor.** With nothing to rotate, the pool is Today, so a panel never
   falls back to the vendor logo while the hub runs.
 - **An alert lasts until the producer sends a non-alert frame** for that panel, withdraws its
@@ -114,7 +120,7 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 
 `Tests/Program.cs`, the `Rotation.Pick` checks: rotation order and interval, wrap-around, 
 Today's turn, a departed producer, alerts pre-empting and rotating, alert over feed, pins, locked →
-Today, display off → blank; and the `Layout.Carve` checks and layout settings problems. Run `dotnet run --project Tests/LcdHub.Tests.csproj`.
+Today, display off → blank, skipping what other regions show; and the `Layout.Carve` checks and layout settings problems. Run `dotnet run --project Tests/LcdHub.Tests.csproj`.
 
 ## Links
 

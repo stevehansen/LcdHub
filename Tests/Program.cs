@@ -21,8 +21,8 @@ var late = TimeSpan.FromSeconds(10);
 Offer A(string name) => new(name, false);
 Offer Alert(string name) => new(name, true);
 string P(Offer[] offers, string? current, TimeSpan shown, bool today = false, bool feed = false, bool locked = false, bool off = false,
-    string? pin = null) =>
-    Pick(offers, pin, today, feed, locked, off, current, shown, interval);
+    string? pin = null, string[]? elsewhere = null) =>
+    Pick(offers, pin, today, feed, locked, off, current, shown, interval, elsewhere: elsewhere);
 
 // ---- rotation ----
 Check(P([], null, early) == Rotation.Today, "nothing offered → Today");
@@ -47,6 +47,14 @@ Check(P([A("b"), Alert("a")], "b", early, pin: "b") == "a", "an alert overrides 
 Check(P([A("b")], null, early, locked: true, pin: "b") == Rotation.Today, "locked beats a pin");
 Check(P([Alert("a")], null, early, locked: true) == Rotation.Today, "locked shows only Today");
 Check(P([Alert("a")], null, early, locked: true, off: true) == Blank, "display off blanks");
+Check(P([A("a"), A("b")], null, early, elsewhere: ["a"]) == "b", "a first pick skips what another region shows");
+Check(P([A("a"), A("b"), A("c")], "a", late, elsewhere: ["b"]) == "c", "the rotation skips what another region shows");
+Check(P([A("a"), A("b")], "a", late, elsewhere: ["b"]) == "b", "with nothing else left, regions swap");
+Check(P([A("a")], "a", late, elsewhere: ["a"]) == "a", "a lone producer may show twice");
+Check(P([A("a"), A("b")], "a", early, elsewhere: ["a"]) == "a", "a turn isn't cut short by another region");
+Check(P([A("a"), A("b")], "b", late, today: true, elsewhere: [Rotation.Today]) == "a", "Today counts as shown elsewhere too");
+Check(P([Alert("a"), A("b")], null, early, elsewhere: ["a"]) == "a", "an alert shows even if shown elsewhere");
+Check(P([A("a"), A("b")], null, early, pin: "a", elsewhere: ["a"]) == "a", "so does a pin");
 
 // ---- wire ----
 var hello = LcdHubWire.Read(new MemoryStream(LcdHubWire.Hello("Example App")))!.Value;
