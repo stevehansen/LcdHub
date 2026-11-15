@@ -13,7 +13,8 @@ namespace LcdHub;
 /// in the rotation or there's nothing else.</item>
 /// </list>
 /// Whatever is showing stays for its whole turn (its own interval, or the shared one) unless
-/// it drops out of the pool.
+/// it drops out of the pool. A rotation skips what the panel's other regions show, unless
+/// nothing else is left; alerts, toasts and a pin don't.
 /// </summary>
 internal static class Rotation
 {
@@ -30,8 +31,10 @@ internal static class Rotation
     /// <param name="current">What the panel shows now, or null.</param>
     /// <param name="shownFor">How long <paramref name="current"/> has been up; <see cref="TimeSpan.MaxValue"/> for "its turn is over".</param>
     /// <param name="ownIntervals">Producers, by name, whose turn isn't <paramref name="interval"/>.</param>
+    /// <param name="elsewhere">What the panel's other regions show now, so the rotation doesn't show it twice.</param>
     public static string Pick(IReadOnlyList<Offer> offers, string? pinned, bool todayInRotation, bool hasFeed, bool locked, bool displayOff,
-        string? current, TimeSpan shownFor, TimeSpan interval, IReadOnlyDictionary<string, TimeSpan>? ownIntervals = null)
+        string? current, TimeSpan shownFor, TimeSpan interval, IReadOnlyDictionary<string, TimeSpan>? ownIntervals = null,
+        IReadOnlyCollection<string>? elsewhere = null)
     {
         if (displayOff) return Blank;
         if (locked) return Today;
@@ -39,17 +42,31 @@ internal static class Rotation
         var pool = new List<string>();
         foreach (var o in offers) if (o.Alert) pool.Add(o.Name);
         if (pool.Count == 0) foreach (var o in offers) if (o.Toast) pool.Add(o.Name);
+        var rotating = false;
         if (pool.Count == 0)
         {
             foreach (var o in offers) if (o.Name == pinned) return pinned;
             if (hasFeed) return Feed;
             foreach (var o in offers) pool.Add(o.Name);
             if (todayInRotation || pool.Count == 0) pool.Add(Today);
+            rotating = true;
         }
 
         var at = current is null ? -1 : pool.IndexOf(current);
-        if (at < 0) return pool[0];
-        var turn = ownIntervals?.GetValueOrDefault(current!, interval) ?? interval;
-        return shownFor < turn ? current! : pool[(at + 1) % pool.Count];
+        if (at >= 0)
+        {
+            var turn = ownIntervals?.GetValueOrDefault(current!, interval) ?? interval;
+            if (shownFor < turn) return current!;
+        }
+        // The next in order (the first, without a current one) that no other region shows; if
+        // every other one is shown elsewhere, the next anyway, so regions swap rather than stick.
+        if (rotating && elsewhere is { Count: > 0 })
+            for (int k = 1; k <= pool.Count; k++)
+            {
+                var candidate = pool[(at + k) % pool.Count];
+                if (candidate == current) break;
+                if (!elsewhere.Contains(candidate)) return candidate;
+            }
+        return pool[(at + 1) % pool.Count];
     }
 }
