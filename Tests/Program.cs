@@ -200,6 +200,8 @@ var status = LcdHubWire.ParseStatus(LcdHubWire.Read(new MemoryStream(LcdHubWire.
 Check(status == new LcdHubWire.StatusMessage("k", "Fable 7d 100%", LcdHubStatusLevel.Bad, 0x123456, 9000), "a status item round-trips");
 status = LcdHubWire.ParseStatus(LcdHubWire.Read(new MemoryStream(LcdHubWire.Status("k", "", LcdHubStatusLevel.Info)))!.Value.Body);
 Check(status is { Text: "", Color: null, LifetimeMs: 0 }, "a withdrawal has no colour or lifetime");
+// The hub's pipe thread catches ArgumentOutOfRangeException, ending only that producer.
+Check(Throws<ArgumentOutOfRangeException>(() => LcdHubWire.ParseStatus(new byte[4])), "a status without its level throws what the pipe thread catches");
 var flowed = StatusStrip.Flow([30, 30, 30], 100, 1, 0, 10);
 Check(flowed is [[[0, 1]], [[2]]], "items that don't fit a line go on the next page");
 flowed = StatusStrip.Flow([30, 30, 30], 100, 2, 50, 10);

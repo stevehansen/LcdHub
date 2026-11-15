@@ -195,6 +195,9 @@ public sealed class LcdHubClient : IDisposable
     public void SetStatus(string key, string text, LcdHubStatusLevel level = LcdHubStatusLevel.Info,
         TimeSpan? validFor = null, uint? color = null)
     {
+        // Here rather than when it's sent later on the Run thread, where it would end the process.
+        if (Encoding.UTF8.GetByteCount(key) > ushort.MaxValue || Encoding.UTF8.GetByteCount(text) > ushort.MaxValue)
+            throw new ArgumentException("status key or text over 65535 UTF-8 bytes");
         lock (_gate)
         {
             if (text.Length == 0) _statuses.Remove(key);
@@ -604,7 +607,8 @@ public static class LcdHubWire
     {
         private int _pos;
 
-        public byte U8() => body[_pos++];
+        // Through a span like the others, so a short body throws ArgumentOutOfRangeException, which the hub's pipe thread catches.
+        public byte U8() => body.AsSpan(_pos++, 1)[0];
 
         public ushort U16()
         {
