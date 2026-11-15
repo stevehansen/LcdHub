@@ -37,6 +37,10 @@ internal sealed class RegionSettings
     [JsonPropertyName("edge")] public string Edge { get; set; } = "left";
     /// <summary>Its width (left, right) or height (top, bottom) in pixels.</summary>
     [JsonPropertyName("size")] public int Size { get; set; }
+    /// <summary><see cref="LcdHub.Layout.Rotation"/>, or <see cref="LcdHub.Layout.Status"/> for a status strip the hub draws.</summary>
+    [JsonPropertyName("kind")] public string Kind { get; set; } = LcdHub.Layout.Rotation;
+    /// <summary>A status strip starts with the time.</summary>
+    [JsonPropertyName("clock")] public bool Clock { get; set; } = true;
 }
 
 /// <summary>What Today shows, the same on every panel.</summary>
@@ -183,7 +187,8 @@ internal sealed class HubSettings
                 Report(where + ".", r.Unknown);
                 string? bad = string.IsNullOrWhiteSpace(r.Region) || r.Region.Contains('/') || !names.Add(r.Region) ? $"{where}.region"
                     : !Layout.Edges.Contains(r.Edge) ? $"{where}.edge = \"{r.Edge}\""
-                    : r.Size < Layout.MinSize ? $"{where}.size = {r.Size}"
+                    : !Layout.Kinds.Contains(r.Kind) ? $"{where}.kind = \"{r.Kind}\""
+                    : r.Size < (r.Kind == Layout.Status ? Layout.MinStatusSize : Layout.MinSize) ? $"{where}.size = {r.Size}"
                     : null;
                 if (bad is null) continue;
                 Problems.Add($"{Strings.SettingsBadValue}: {bad}");

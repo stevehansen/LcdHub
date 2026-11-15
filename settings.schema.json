@@ -58,7 +58,7 @@
           "video_path": { "type": ["string", "null"], "description": "A video playing on this panel instead of the rotation." },
           "layout": {
             "type": "array",
-            "description": "Strips cut off this panel's edges, in order, each a region with its own rotation and its own entry under panels (\"<panel id>/<region>\"). What is left keeps the panel's id and settings. Only on a panel, not a region.",
+            "description": "Strips cut off this panel's edges, in order, each a region with its own rotation and its own entry under panels (\"<panel id>/<region>\"), or a status strip the hub draws. What is left keeps the panel's id and settings. Only on a panel, not a region.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -66,8 +66,12 @@
               "properties": {
                 "region": { "type": "string", "pattern": "^[^/]+$", "description": "Its name, unique on the panel, e.g. \"side\"." },
                 "edge": { "enum": ["left", "right", "top", "bottom"], "default": "left", "description": "The edge of what is left that it's cut from." },
-                "size": { "type": "integer", "minimum": 64, "description": "Its width (left, right) or height (top, bottom) in pixels. At least 64 pixels must be left over." }
-              }
+                "size": { "type": "integer", "minimum": 16, "description": "Its width (left, right) or height (top, bottom) in pixels: at least 64, or 16 for a status strip. At least 64 pixels must be left over." },
+                "kind": { "enum": ["rotation", "status"], "default": "rotation", "description": "rotation: a region with its own rotation, seen by apps as a panel. status: a strip the hub draws with every app's status items (and the time); apps don't see it." },
+                "clock": { "type": "boolean", "default": true, "description": "A status strip starts with the time." }
+              },
+              "if": { "properties": { "kind": { "const": "status" } }, "required": ["kind"] },
+              "else": { "properties": { "size": { "minimum": 64 } } }
             }
           }
         }

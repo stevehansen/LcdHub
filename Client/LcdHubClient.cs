@@ -31,6 +31,14 @@ public enum LcdHubVisibility : byte
     Shown,
 }
 
+/// <summary>How a status item is marked in the hub's status strips; worse sorts first.</summary>
+public enum LcdHubStatusLevel : byte
+{
+    Info,
+    Warn,
+    Bad,
+}
+
 /// <summary>
 /// Connects a producer to the LCD Hub and keeps it connected: retries while the hub isn't
 /// running, reconnects when it restarts. The producer draws a finished frame per panel and
@@ -57,6 +65,9 @@ public sealed class LcdHubClient : IDisposable
     private readonly object _gate = new();
     // Keyed by panel and toast, so a toast doesn't replace the frame it shows over.
     private readonly Dictionary<(string PanelId, bool Toast), (uint[] Pixels, bool Alert, uint LifetimeMs)> _pending = new();
+    // Status items by key, kept to send again on every (re)connect; ExpiresAt is TickCount64 or 0.
+    private readonly Dictionary<string, (string Text, LcdHubStatusLevel Level, uint? Color, long ExpiresAt)> _statuses = new();
+    private readonly HashSet<string> _statusesDue = new();
     private readonly AutoResetEvent _wake = new(false);
     private readonly CancellationTokenSource _stop = new();
     private readonly Thread _thread;
@@ -174,6 +185,28 @@ public sealed class LcdHubClient : IDisposable
     /// </summary>
     public void Clear(string panelId) => Send(panelId, []);
 
+    /// <summary>
+    /// Puts a short line in the hub's status strips, on every panel that has one, until it is
+    /// set again under the same <paramref name="key"/>, cleared, its <paramref name="validFor"/>
+    /// runs out, or this producer goes. Unlike frames it may be set while disconnected, and is
+    /// sent again on every reconnect. <paramref name="color"/> (0x00RRGGBB) replaces the
+    /// level's mark colour. Needs a v4 hub; an older one ignores it.
+    /// </summary>
+    public void SetStatus(string key, string text, LcdHubStatusLevel level = LcdHubStatusLevel.Info,
+        TimeSpan? validFor = null, uint? color = null)
+    {
+        lock (_gate)
+        {
+            if (text.Length == 0) _statuses.Remove(key);
+            else _statuses[key] = (text, level, color, validFor is { } v ? Environment.TickCount64 + (long)v.TotalMilliseconds : 0);
+            _statusesDue.Add(key);
+        }
+        _wake.Set();
+    }
+
+    /// <summary>Takes a status item out of the hub's status strips.</summary>
+    public void ClearStatus(string key) => SetStatus(key, "");
+
     public void Dispose()
     {
         _stop.Cancel();
@@ -190,6 +223,8 @@ public sealed class LcdHubClient : IDisposable
                 using var pipe = new NamedPipeClientStream(".", LcdHubWire.PipeName, PipeDirection.InOut, LcdHubWire.PipeOptions);
                 pipe.Connect(1000);
                 LcdHubWire.Write(pipe, LcdHubWire.Hello(_name));
+                lock (_gate) _statusesDue.UnionWith(_statuses.Keys);
+                _wake.Set();
                 var reader = new Thread(() => ReadPanels(pipe)) { IsBackground = true, Name = "LcdHubClient reader" };
                 reader.Start();
                 // The reader is first to see the hub go: IsConnected only turns false on a failed
@@ -198,11 +233,22 @@ public sealed class LcdHubClient : IDisposable
                 {
                     _wake.WaitOne(1000);
                     List<KeyValuePair<(string PanelId, bool Toast), (uint[] Pixels, bool Alert, uint LifetimeMs)>> frames;
+                    var statuses = new List<byte[]>();
                     lock (_gate)
                     {
                         frames = _pending.ToList();
                         _pending.Clear();
+                        var now = Environment.TickCount64;
+                        foreach (var key in _statusesDue)
+                        {
+                            if (_statuses.TryGetValue(key, out var s) && s.ExpiresAt != 0 && s.ExpiresAt <= now) _statuses.Remove(key);
+                            statuses.Add(_statuses.TryGetValue(key, out s)
+                                ? LcdHubWire.Status(key, s.Text, s.Level, s.Color, s.ExpiresAt == 0 ? 0 : (uint)Math.Max(1, s.ExpiresAt - now))
+                                : LcdHubWire.Status(key, "", LcdHubStatusLevel.Info));
+                        }
+                        _statusesDue.Clear();
                     }
+                    foreach (var message in statuses) LcdHubWire.Write(pipe, message);
                     foreach (var (key, f) in frames)
                     {
                         LcdHubWire.WriteFrame(pipe, key.PanelId, f.Alert, f.Pixels, key.Toast, f.LifetimeMs);
@@ -281,6 +327,10 @@ public sealed class LcdHubClient : IDisposable
 /// flags (bit 0 light), u32 background, u32 text, u32 accent.</item>
 /// <item><see cref="MsgVisibility"/>, hub → producer, on every change (v2): string panel id,
 /// u8 <see cref="LcdHubVisibility"/>. A Panels message resets every panel to Next.</item>
+/// <item><see cref="MsgStatus"/>, producer → hub (v4): string key, string text, u8
+/// <see cref="LcdHubStatusLevel"/>, u8 flags (bit 0 colour, bit 1 lifetime), with bit 0 a u32
+/// 0x00RRGGBB colour, with bit 1 a u32 lifetime in ms. Empty text withdraws the item. Keys are
+/// the producer's own; the hub drops its items when it goes.</item>
 /// </list>
 /// Additions never break a peer: each side ignores message types it doesn't know and bytes
 /// after the fields it reads. <see cref="Version"/> says which messages a producer knows; only
@@ -293,9 +343,10 @@ public static class LcdHubWire
     // Overlapped on both ends: each side reads on one thread while writing on another, and
     // a synchronous pipe handle makes the write wait for the pending read.
     public const PipeOptions PipeOptions = System.IO.Pipes.PipeOptions.CurrentUserOnly | System.IO.Pipes.PipeOptions.Asynchronous;
-    public const ushort Version = 3, MinVersion = 1;
-    public const byte MsgHello = 1, MsgPanels = 2, MsgFrame = 3, MsgStyle = 4, MsgVisibility = 5;
+    public const ushort Version = 4, MinVersion = 1;
+    public const byte MsgHello = 1, MsgPanels = 2, MsgFrame = 3, MsgStyle = 4, MsgVisibility = 5, MsgStatus = 6;
     private const byte FlagAlert = 1, FlagToast = 2, FlagLifetime = 4, FlagLight = 1;
+    private const byte StatusColor = 1, StatusLifetime = 2;
     // A 1920×1080 frame with room to spare; anything bigger is a corrupt stream.
     private const int MaxMessageBytes = 16 << 20;
 
@@ -361,6 +412,30 @@ public static class LcdHubWire
         w.Str(panelId);
         w.U8((byte)visibility);
         return w.Done();
+    }
+
+    /// <param name="lifetimeMs">0 for an item that stays until replaced.</param>
+    public static byte[] Status(string key, string text, LcdHubStatusLevel level, uint? color = null, uint lifetimeMs = 0)
+    {
+        var w = new Writer(MsgStatus);
+        w.Str(key);
+        w.Str(text);
+        w.U8((byte)level);
+        w.U8((byte)((color is not null ? StatusColor : 0) | (lifetimeMs > 0 ? StatusLifetime : 0)));
+        if (color is { } c) w.U32(c);
+        if (lifetimeMs > 0) w.U32(lifetimeMs);
+        return w.Done();
+    }
+
+    public readonly record struct StatusMessage(string Key, string Text, LcdHubStatusLevel Level, uint? Color, uint LifetimeMs);
+
+    public static StatusMessage ParseStatus(byte[] body)
+    {
+        var r = new Reader(body);
+        var (key, text, level, flags) = (r.Str(), r.Str(), (LcdHubStatusLevel)r.U8(), r.U8());
+        uint? color = (flags & StatusColor) != 0 ? r.U32() : null;
+        var lifetime = (flags & StatusLifetime) != 0 ? r.U32() : 0;
+        return new StatusMessage(key, text, level, color, lifetime);
     }
 
     public static LcdHubStyle ParseStyle(byte[] body)

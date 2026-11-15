@@ -31,6 +31,8 @@ internal sealed class Producer
     public Frame? FrameFor(string panelId) => Toasts.GetValueOrDefault(panelId) ?? Frames.GetValueOrDefault(panelId);
     // Panel id → the visibility last sent; a panel missing here is Next, as the client assumes.
     public readonly Dictionary<string, LcdHubVisibility> Told = new();
+    // Its items in the status strips, by its own keys.
+    public readonly Dictionary<string, StatusItem> Statuses = new();
 
     /// <summary>Never blocks. Best effort: a producer that has gone is reaped by its own pipe thread.</summary>
     public void Send(byte[] message)
@@ -52,6 +54,13 @@ internal sealed class Frame(uint[] pixels, bool alert, bool toast = false, long 
     public bool Toast { get; } = toast;
     public long ExpiresAt { get; } = expiresAt;
 }
+
+/// <summary>One line a producer keeps in the status strips.</summary>
+/// <param name="ExpiresAt">Environment.TickCount64 when the hub drops it, or 0 for never.</param>
+internal sealed record StatusItem(string Text, LcdHubStatusLevel Level, uint? Color, long ExpiresAt);
+
+/// <summary>What a status strip looks like: redrawn when the items, the minute (with a clock), the page or the style change.</summary>
+internal readonly record struct StatusKey(int Version, string? Minute, int Page, LcdHubStyle Style);
 
 /// <summary>What Today looks like: redrawn when the minute, the weather or the options change.</summary>
 internal readonly record struct TodayKey(string Minute, Weather? Weather, int Version);
@@ -90,6 +99,10 @@ internal sealed class Region(PanelSlot slot, RegionRect rect)
     public object? LastSent;
     // What it shows, kept for putting the panel together. Never changed once set.
     public uint[]? Pixels;
+    /// <summary>A status strip, drawn by the hub: no rotation, no feed, not told to producers.</summary>
+    public bool IsStatus => Rect.Status;
+    // A status strip's page count when last drawn.
+    public int Pages = 1;
 }
 
 /// <summary>
@@ -110,6 +123,8 @@ internal static class Hub
     private static int _refreshPosted;
     // Bumped when the Today options change, so Today is drawn again.
     private static int _todayVersion;
+    // Bumped under the gate whenever any producer's status items change, so the strips are drawn again.
+    private static int _statusVersion;
     private static LcdHubStyle _style = LcdHubStyle.Default;
 
     public static void Start(IntPtr hwnd)
@@ -171,7 +186,11 @@ internal static class Hub
 
     public static void Disconnect(Producer producer)
     {
-        lock (_gate) { _producers.Remove(producer); }
+        lock (_gate)
+        {
+            _producers.Remove(producer);
+            if (producer.Statuses.Count > 0) _statusVersion++;
+        }
         producer.Close();
         Diagnose.Log($"hub: {producer.Name} disconnected");
         PostRefresh();
@@ -194,9 +213,50 @@ internal static class Hub
         PostRefresh();
     }
 
-    /// <summary>Drops frames and toasts whose lifetime has run out. Under the gate.</summary>
+    /// <summary>Sets or (with empty text) withdraws one of a producer's status items, shown on every status strip.</summary>
+    public static void SetStatus(Producer producer, LcdHubWire.StatusMessage m)
+    {
+        lock (_gate)
+        {
+            if (m.Text.Length == 0)
+            {
+                if (!producer.Statuses.Remove(m.Key)) return;
+            }
+            else
+            {
+                var item = new StatusItem(m.Text, m.Level, m.Color, m.LifetimeMs > 0 ? Environment.TickCount64 + m.LifetimeMs : 0);
+                // Only a change redraws, so a producer may repeat an item as often as it likes.
+                if (producer.Statuses.GetValueOrDefault(m.Key) is { } old && old with { ExpiresAt = item.ExpiresAt } == item)
+                {
+                    producer.Statuses[m.Key] = item;
+                    return;
+                }
+                producer.Statuses[m.Key] = item;
+            }
+            _statusVersion++;
+        }
+        PostRefresh();
+    }
+
+    /// <summary>Every producer's status items, worst level first, then by producer and key. Under the gate.</summary>
+    private static List<StatusStrip.Line> StatusLinesLocked() =>
+        _producers.SelectMany(p => p.Statuses.Select(s => (Producer: p.Name, s.Key, Item: s.Value)))
+            .OrderByDescending(s => s.Item.Level)
+            .ThenBy(s => s.Producer, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(s => s.Key, StringComparer.Ordinal)
+            .Select(s => new StatusStrip.Line(s.Item.Text, s.Item.Color ?? StatusStrip.LevelColor(s.Item.Level, _style)))
+            .ToList();
+
+    /// <summary>Drops frames, toasts and status items whose lifetime has run out. Under the gate.</summary>
     private static void ExpireFrames(long now)
     {
+        foreach (var p in _producers)
+            foreach (var (key, _) in p.Statuses.Where(s => s.Value.ExpiresAt != 0 && s.Value.ExpiresAt <= now).ToList())
+            {
+                p.Statuses.Remove(key);
+                _statusVersion++;
+                Diagnose.Log($"hub: {p.Name}'s status {key} expired");
+            }
         foreach (var p in _producers)
             foreach (var frames in (Dictionary<string, Frame>[])[p.Frames, p.Toasts])
                 foreach (var (panelId, f) in frames.Where(f => f.Value.ExpiresAt != 0 && f.Value.ExpiresAt <= now).ToList())
@@ -212,15 +272,15 @@ internal static class Hub
             NativeMethods.PostMessageW(_hwnd, Win32Consts.WM_APP_REFRESH, IntPtr.Zero, IntPtr.Zero);
     }
 
-    // Producers are told about regions: to them each is a panel.
+    // Producers are told about rotating regions: to them each is a panel. Status strips are the hub's.
     private static List<LcdHubPanel> PanelListLocked() =>
-        _slots.SelectMany(s => s.Regions).Select(r => new LcdHubPanel(r.Id, r.Width, r.Height)).ToList();
+        _slots.SelectMany(s => s.Regions).Where(r => !r.IsStatus).Select(r => new LcdHubPanel(r.Id, r.Width, r.Height)).ToList();
 
     private static Region? FindRegionLocked(string id)
     {
         foreach (var slot in _slots)
             foreach (var region in slot.Regions)
-                if (region.Id == id) return region;
+                if (region.Id == id && !region.IsStatus) return region;
         return null;
     }
 
@@ -244,6 +304,20 @@ internal static class Hub
                 bool switched = false, changed = false;
                 foreach (var region in slot.Regions)
                 {
+                    if (region.IsStatus)
+                    {
+                        if (takeover is not null) continue;
+                        var withClock = _settings.Panels.GetValueOrDefault(slot.Id)?.Layout.Find(e => e.Region == region.Name)?.Clock ?? true;
+                        var key = new StatusKey(_statusVersion, withClock ? today.Minute : null,
+                            (int)(now / (long)interval.TotalMilliseconds % region.Pages), _style);
+                        if (Equals(key, region.LastSent)) continue;
+                        region.LastSent = key;
+                        if (StatusStrip.Paint(region.Width, region.Height, StatusLinesLocked(), withClock ? clock : null, _style,
+                                key.Page, out region.Pages) is not { } strip) continue;
+                        region.Pixels = strip;
+                        changed = true;
+                        continue;
+                    }
                     var settings = _settings.Panels.GetValueOrDefault(region.Id);
                     var offers = new List<Rotation.Offer>();
                     foreach (var p in _producers.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
@@ -397,7 +471,7 @@ internal static class Hub
             slot.Takeover = null;
         }
         foreach (var region in slot.Regions)
-            if (_settings.Panels.GetValueOrDefault(region.Id)?.VideoPath is { } video) PlayVideo(region, video);
+            if (!region.IsStatus && _settings.Panels.GetValueOrDefault(region.Id)?.VideoPath is { } video) PlayVideo(region, video);
     }
 
     /// <summary>The panel's regions by its layout; strips that don't fit go under ⚠ Settings.</summary>
@@ -477,10 +551,10 @@ internal static class Hub
         get { lock (_gate) return _slots.ToList(); }
     }
 
-    /// <summary>Every panel's regions, in panel order; a panel without a layout is one region.</summary>
+    /// <summary>Every panel's rotating regions, in panel order; a panel without a layout is one region.</summary>
     public static List<Region> Regions
     {
-        get { lock (_gate) return _slots.SelectMany(s => s.Regions).ToList(); }
+        get { lock (_gate) return _slots.SelectMany(s => s.Regions).Where(r => !r.IsStatus).ToList(); }
     }
 
     public static List<string> ProducerNames
@@ -544,8 +618,9 @@ internal static class Hub
         var recarved = false;
         foreach (var slot in Slots)
         {
-            static IEnumerable<(string?, string, int)> Strips(HubSettings settings, string id) =>
-                (settings.Panels.GetValueOrDefault(id)?.Layout ?? []).Select(e => (e.Region, e.Edge, e.Size));
+            // A status strip's clock isn't here: the strip reads it each time it's drawn.
+            static IEnumerable<(string?, string, int, string)> Strips(HubSettings settings, string id) =>
+                (settings.Panels.GetValueOrDefault(id)?.Layout ?? []).Select(e => (e.Region, e.Edge, e.Size, e.Kind));
             if (!Strips(s, slot.Id).SequenceEqual(Strips(old, slot.Id)))
             {
                 // A mirrored window isn't saved, so it ends here; videos start again at their new size.
@@ -558,6 +633,11 @@ internal static class Hub
 
             foreach (var region in slot.Regions)
             {
+                if (region.IsStatus)
+                {
+                    lock (_gate) region.LastSent = null; // its clock may have changed
+                    continue;
+                }
                 var video = s.Panels.GetValueOrDefault(region.Id)?.VideoPath;
                 if (video == old.Panels.GetValueOrDefault(region.Id)?.VideoPath) continue;
                 if (video is not null) PlayVideo(region, video);

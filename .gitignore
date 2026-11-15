@@ -31,3 +31,4 @@ Thumbs.db
 Desktop.ini
 
 .claude/settings.local.json
+__pycache__/

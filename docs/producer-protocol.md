@@ -3,19 +3,19 @@
 The contract between the hub and the apps that send it frames: the named pipe, its messages, and
 the client library.
 
-**Status:** current as of wire version 3 (toasts and frame lifetimes). No single PRD (foundational domain).
+**Status:** current as of wire version 4 (status items). No single PRD (foundational domain).
 **Priming skill:** [`.claude/skills/producer-protocol/SKILL.md`](../.claude/skills/producer-protocol/SKILL.md)
 
 ## What it is
 
 `Client/LcdHubClient.cs` is the whole contract. Producers copy it or `<Compile Include>` it, and
 the hub compiles the same file for its side, so the two sides can't disagree. This domain owns how
-frames, panel lists, the shared style and visibility cross the pipe. It does *not* choose between producers (see
+frames, status items, panel lists, the shared style and visibility cross the pipe. It does *not* choose between producers (see
 [scheduling](scheduling.md)) or know anything about devices (see [panels](panels.md)).
 
 ## Core entities & relationships
 
-`LcdHubClient --pipe "LcdHub"--> PipeServer -> Hub.Connect / Offer / Disconnect`
+`LcdHubClient --pipe "LcdHub"--> PipeServer -> Hub.Connect / Offer / SetStatus / Disconnect`
 
 - **`LcdHubWire`**: message framing, the message types (Hello, Panels, Frame, Style,
   Visibility) and the pipe options. The doc comment on the class is the format spec.
@@ -26,6 +26,9 @@ frames, panel lists, the shared style and visibility cross the pipe. It does *no
 - **`LcdHubVisibility`**: per panel, Shown, Next or Hidden. Producers skip drawing a Hidden panel
   unless they are raising or standing down an alert.
 - **`LcdHubPanel`**: id, width and height as announced to producers.
+- **Status item** (`SetStatus`/`ClearStatus`, `LcdHubStatusLevel`): a short line of text under a
+  producer's own key, with a level (info, warn, bad), an optional colour and lifetime, shown in
+  every status strip (see [scheduling](scheduling.md)).
 - **`PipeServer`**: an accept loop with one thread per producer. It checks the hello, then hands
   each frame to `Hub.Offer`.
 
@@ -75,6 +78,11 @@ frames, panel lists, the shared style and visibility cross the pipe. It does *no
   array after sending it. Frames are written straight from the array (`WriteFrame`), not
   copied into a message buffer first, and the hub reads them straight into the frame's array
   (`ReadIncoming`).
+- **Status items are not per panel and outlive panel changes.** The client keeps them, may set them
+  while disconnected, and sends them all again on every connect, with what is left of their
+  lifetime. The hub keeps them per producer (`Producer.Statuses`) and drops them when it
+  disconnects or their lifetime ends; empty text withdraws one. Repeating an unchanged item only
+  renews its lifetime. Status strips are never announced as panels.
 - **Messages are bounded** (`MaxMessageBytes`). A bad length or truncated body throws
   `IOException`, which ends that one producer's connection only.
 
@@ -95,7 +103,7 @@ the OS ends them with the hub. It doesn't change the pipe: a launched app connec
 |---|---|
 | `Client/LcdHubClient.cs` | `LcdHubClient`, `LcdHubPanel`, `LcdHubWire` (format doc on the class) |
 | `Launcher.cs` | Starts and restarts the `launch` apps, inside a kill-on-close job |
-| `PipeServer.cs` | Accept loop, hello and version check, frames → `Hub.Offer` |
+| `PipeServer.cs` | Accept loop, hello and version check, frames → `Hub.Offer`, status → `Hub.SetStatus` |
 | `Hub.cs` | `Connect` (sends the first Panels message, dedupes names), `Offer`, `Disconnect` |
 
 ## Gotchas
@@ -113,7 +121,7 @@ the OS ends them with the hub. It doesn't change the pipe: a launched app connec
 
 ## Executable references
 
-`Tests/Program.cs`, the wire checks: hello, panels, style, visibility, and full-frame and empty-frame round-trips, trailing fields ignored,
+`Tests/Program.cs`, the wire checks: hello, panels, style, visibility, status, and full-frame and empty-frame round-trips, trailing fields ignored,
 back-to-back framing, clean EOF → null, truncated message throws, absurd length refused.
 
 ## Links

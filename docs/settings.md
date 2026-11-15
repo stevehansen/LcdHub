@@ -105,7 +105,9 @@ Each entry cuts a strip off one edge of what is left of the panel, in order:
 |---|---|---|
 | `region` | required | Its name, unique on the panel and without `/`. |
 | `edge` | `"left"` | `left`, `right`, `top` or `bottom` of what is left. |
-| `size` | required | Its width (left, right) or height (top, bottom) in pixels, at least 64. |
+| `size` | required | Its width (left, right) or height (top, bottom) in pixels, at least 64 (16 for a status strip). |
+| `kind` | `"rotation"` | `rotation`: a region with its own rotation. `status`: a status strip (below). |
+| `clock` | `true` | A status strip starts with the time. |
 
 What is left keeps the panel's id, so the panel's own `today`, `hidden`, `pinned` and
 `video_path` apply to it. Each strip is set up under its own entry, `"<panel id>/<region>"`,
@@ -123,4 +125,14 @@ once: apps redraw for the new sizes and videos restart; a mirrored window stops.
   },
   "0416:5408:20258EE9F67A/side": { "today": true }
 }
+```
+
+A **status strip** (`"kind": "status"`) has no rotation: the hub draws it with the time, then every
+app's status items (short lines such as "Fable 7d 100% → Mon 09:00"), worst first. Items flow
+left to right and wrap; what doesn't fit is paged every `rotate_seconds`. Every status strip on
+every panel shows the same items. Apps don't see it as a panel, so it has no entry of its own
+under `panels`.
+
+```json
+"layout": [ { "region": "strip", "edge": "bottom", "size": 40, "kind": "status" } ]
 ```

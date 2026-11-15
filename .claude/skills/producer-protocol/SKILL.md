@@ -1,6 +1,6 @@
 ---
 name: producer-protocol
-description: Prime on the LcdHub producer protocol before working on it: LcdHubClient, LcdHubWire (Hello, Panels, Frame, Style and Visibility messages), LcdHubPanel, PipeServer, the version number, frame size validation, reconnects and PanelsChanged. Use when the task touches the named pipe, the wire format, writing or migrating a producer app, alerts sent by an app, or "frames don't arrive". Not for choosing between producers (see scheduling) or USB devices (see panels).
+description: Prime on the LcdHub producer protocol before working on it: LcdHubClient, LcdHubWire (Hello, Panels, Frame, Style, Visibility and Status messages), status items (SetStatus), LcdHubPanel, PipeServer, the version number, frame size validation, reconnects and PanelsChanged. Use when the task touches the named pipe, the wire format, writing or migrating a producer app, alerts sent by an app, or "frames don't arrive". Not for choosing between producers (see scheduling) or USB devices (see panels).
 ---
 
 # Producer protocol: priming
@@ -17,6 +17,7 @@ description: Prime on the LcdHub producer protocol before working on it: LcdHubC
 - **A frame is exactly the panel's width × height, or empty to withdraw** (`Clear`). Other sizes are dropped silently.
 - **A Panels message means "redraw everything".** The hub has forgotten your frames.
 - **Fields go before the pixels.** A frame's pixels are the rest of the message, so v3's lifetime (toasts, `validFor`) sits ahead of them behind flag bit 2.
+- **Status items aren't per panel.** The client keeps them and resends them on every connect; the hub drops them when the producer goes or their lifetime ends.
 - **The hub never writes to a producer under its gate.** `Producer.Send` queues for a writer thread per producer; a pipe write waits for the app to read.
 
 ## Key files
