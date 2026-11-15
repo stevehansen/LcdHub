@@ -86,12 +86,41 @@ the apps of removed entries are closed; unchanged ones keep running.
 
 ### `panels`
 
-Keyed by panel id, such as `"0416:5302"`. Written by the panel's tray menu, so it rarely needs
-editing.
+Keyed by panel id, such as `"0416:5302"`, or by region id (below). Written by the tray menu,
+so apart from `layout` it rarely needs editing.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `today` | `false` | Today takes its own turn in the rotation (it always shows when nothing else does). |
 | `hidden` | `[]` | Apps, by name, left out of this panel's rotation. |
 | `pinned` | none | An app, by name, kept on this panel instead of rotating. Alerts still interrupt it. |
-| `video_path` | none | A video playing on this panel instead of the rotation. |
+| `video_path` | none | A video playing on this panel instead of the rotation, scaled to its size. |
+| `layout` | `[]` | Strips cut off the panel's edges, each a region with its own rotation (below). Only on a panel. |
+
+#### Regions (`layout`)
+
+Each entry cuts a strip off one edge of what is left of the panel, in order:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `region` | required | Its name, unique on the panel and without `/`. |
+| `edge` | `"left"` | `left`, `right`, `top` or `bottom` of what is left. |
+| `size` | required | Its width (left, right) or height (top, bottom) in pixels, at least 64. |
+
+What is left keeps the panel's id, so the panel's own `today`, `hidden`, `pinned` and
+`video_path` apply to it. Each strip is set up under its own entry, `"<panel id>/<region>"`,
+with the same keys (except `layout`). Apps see every region as a panel of its own size, and each
+rotates on its own, alerts included. While the session is locked or the monitors are off, the
+whole panel shows Today or goes black, whatever its layout. A strip that would leave less than
+64 pixels is skipped and listed under ⚠ Settings. Reload settings applies a changed layout at
+once: apps redraw for the new sizes and videos restart; a mirrored window stops.
+
+```json
+"panels": {
+  "0416:5408:20258EE9F67A": {
+    "layout": [ { "region": "side", "edge": "left", "size": 480 } ],
+    "pinned": "Cortex"
+  },
+  "0416:5408:20258EE9F67A/side": { "today": true }
+}
+```

@@ -15,7 +15,7 @@ internal static class MainWindow
     private static readonly int[] RotateChoices = [5, 10, 15, 30, 60];
     // Night brightness, percent; 100 is off.
     private static readonly int[] DimChoices = [100, 70, 50, 30];
-    private const int MaxPanels = 4, MaxProducers = 40, MaxWindows = 40;
+    private const int MaxRegions = 12, MaxProducers = 40, MaxWindows = 40;
 
     // Menu ids: global ones below 1000; per panel 1000 + index*200 + item.
     private const int IdRotateFirst = 10, IdStartup = 20, IdExit = 30, IdTodayFirst = 40, IdStyleFirst = 50;
@@ -35,7 +35,7 @@ internal static class MainWindow
     private static bool _sessionLocked, _displayOff;
 
     // What the open menu was built from, so a command's id maps back to what was clicked.
-    private static List<PanelSlot> _menuSlots = [];
+    private static List<Region> _menuRegions = [];
     private static List<string> _menuProducers = [];
     private static List<(IntPtr Hwnd, string Title)> _menuWindows = [];
 
@@ -182,20 +182,19 @@ internal static class MainWindow
 
     private static void ShowMenu(IntPtr hwnd)
     {
-        _menuSlots = Hub.Slots.Take(MaxPanels).ToList();
+        _menuRegions = Hub.Regions.Take(MaxRegions).ToList();
         _menuProducers = Hub.ProducerNames.Take(MaxProducers).ToList();
-        _menuWindows = _menuSlots.Count == 0 ? [] : Gdi.EnumerateAppWindows().Take(MaxWindows).ToList();
+        _menuWindows = _menuRegions.Count == 0 ? [] : Gdi.EnumerateAppWindows().Take(MaxWindows).ToList();
 
         var menu = NativeMethods.CreatePopupMenu();
-        if (_menuSlots.Count == 0)
+        if (_menuRegions.Count == 0)
             NativeMethods.AppendMenuW(menu, Win32Consts.MF_STRING | Win32Consts.MF_GRAYED, UIntPtr.Zero, Strings.NoPanels);
-        for (int i = 0; i < _menuSlots.Count; i++)
+        for (int i = 0; i < _menuRegions.Count; i++)
         {
-            var slot = _menuSlots[i];
-            NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)CreatePanelMenu(slot, i),
-                $"{slot.Panel.Width}×{slot.Panel.Height}");
+            var region = _menuRegions[i];
+            NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP, (UIntPtr)(nuint)CreatePanelMenu(region, i), MenuText(RegionLabel(region)));
         }
-        if (_menuSlots.Count > 0) NativeMethods.AppendMenuW(menu, Win32Consts.MF_STRING, (UIntPtr)IdPreview, Strings.ShowPreview);
+        if (_menuRegions.Count > 0) NativeMethods.AppendMenuW(menu, Win32Consts.MF_STRING, (UIntPtr)IdPreview, Strings.ShowPreview);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
 
         var today = NativeMethods.CreatePopupMenu();
@@ -260,19 +259,19 @@ internal static class MainWindow
         NativeMethods.DestroyMenu(menu);
     }
 
-    private static IntPtr CreatePanelMenu(PanelSlot slot, int index)
+    private static IntPtr CreatePanelMenu(Region region, int index)
     {
         var id = (int item) => (UIntPtr)(IdPanelBase + index * IdPanelStride + item);
         var menu = NativeMethods.CreatePopupMenu();
-        var pinned = Hub.Pinned(slot);
-        NativeMethods.AppendMenuW(menu, Checked(slot.Feed is null && pinned is null), id(ItemRotate), Strings.Rotate);
+        var pinned = Hub.Pinned(region);
+        NativeMethods.AppendMenuW(menu, Checked(region.Feed is null && pinned is null), id(ItemRotate), Strings.Rotate);
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
         if (_menuProducers.Count == 0)
             NativeMethods.AppendMenuW(menu, Win32Consts.MF_STRING | Win32Consts.MF_GRAYED, UIntPtr.Zero, Strings.NoProducers);
         for (int i = 0; i < _menuProducers.Count; i++)
-            NativeMethods.AppendMenuW(menu, Checked(!Hub.IsHidden(slot, _menuProducers[i])), id(ItemProducer + i),
+            NativeMethods.AppendMenuW(menu, Checked(!Hub.IsHidden(region, _menuProducers[i])), id(ItemProducer + i),
                 MenuText(_menuProducers[i]));
-        NativeMethods.AppendMenuW(menu, Checked(Hub.TodayInRotation(slot)), id(ItemToday), Strings.Today);
+        NativeMethods.AppendMenuW(menu, Checked(Hub.TodayInRotation(region)), id(ItemToday), Strings.Today);
         if (_menuProducers.Count > 0)
         {
             var pins = NativeMethods.CreatePopupMenu();
@@ -281,17 +280,24 @@ internal static class MainWindow
             NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP | Checked(pinned is not null), (UIntPtr)(nuint)pins, Strings.KeepShowing);
         }
         NativeMethods.AppendMenuW(menu, Win32Consts.MF_SEPARATOR, UIntPtr.Zero, null);
-        NativeMethods.AppendMenuW(menu, Checked(slot.Feed is VideoFeed), id(ItemVideo), Strings.VideoFile);
+        NativeMethods.AppendMenuW(menu, Checked(region.Feed is VideoFeed), id(ItemVideo), Strings.VideoFile);
 
         var windows = NativeMethods.CreatePopupMenu();
         if (_menuWindows.Count == 0)
             NativeMethods.AppendMenuW(windows, Win32Consts.MF_STRING | Win32Consts.MF_GRAYED, UIntPtr.Zero, Strings.NoWindows);
         for (int i = 0; i < _menuWindows.Count; i++)
-            NativeMethods.AppendMenuW(windows, Checked(slot.Feed is WindowFeed wf && wf.Hwnd == _menuWindows[i].Hwnd),
+            NativeMethods.AppendMenuW(windows, Checked(region.Feed is WindowFeed wf && wf.Hwnd == _menuWindows[i].Hwnd),
                 id(ItemWindow + i), MenuText(_menuWindows[i].Title));
-        NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP | Checked(slot.Feed is WindowFeed), (UIntPtr)(nuint)windows,
+        NativeMethods.AppendMenuW(menu, Win32Consts.MF_POPUP | Checked(region.Feed is WindowFeed), (UIntPtr)(nuint)windows,
             Strings.MirrorWindow);
         return menu;
+    }
+
+    /// <summary>The panel's size, then for a panel with a layout which part and its size.</summary>
+    private static string RegionLabel(Region region)
+    {
+        var panel = $"{region.Slot.Panel.Width}×{region.Slot.Panel.Height}";
+        return region.Slot.Regions.Count == 1 ? panel : $"{panel} · {region.Name ?? Strings.MainRegion} {region.Width}×{region.Height}";
     }
 
     private static uint Checked(bool on) => Win32Consts.MF_STRING | (on ? Win32Consts.MF_CHECKED : 0);
@@ -374,25 +380,25 @@ internal static class MainWindow
         var index = (id - IdPanelBase) / IdPanelStride;
         var item = (id - IdPanelBase) % IdPanelStride;
         // The panel may have gone while the menu was open.
-        if (index >= _menuSlots.Count || !Hub.Slots.Contains(_menuSlots[index])) return;
-        var slot = _menuSlots[index];
+        if (index >= _menuRegions.Count || !Hub.Regions.Contains(_menuRegions[index])) return;
+        var region = _menuRegions[index];
         switch (item)
         {
-            case ItemRotate: Hub.BackToRotation(slot); break;
-            case ItemToday: Hub.ToggleToday(slot); break;
+            case ItemRotate: Hub.BackToRotation(region); break;
+            case ItemToday: Hub.ToggleToday(region); break;
             case ItemVideo:
                 // The dialog pumps messages, so check again that the panel is still here.
-                if (PickVideoFile(hwnd) is { } path && Hub.Slots.Contains(slot)) Hub.PlayVideo(slot, path);
+                if (PickVideoFile(hwnd) is { } path && Hub.Regions.Contains(region)) Hub.PlayVideo(region, path);
                 break;
             case >= ItemWindow when item - ItemWindow < _menuWindows.Count:
                 var target = _menuWindows[item - ItemWindow].Hwnd;
-                if (NativeMethods.IsWindow(target)) Hub.MirrorWindow(slot, target);
+                if (NativeMethods.IsWindow(target)) Hub.MirrorWindow(region, target);
                 break;
             case >= ItemPin when item - ItemPin < _menuProducers.Count:
-                Hub.TogglePin(slot, _menuProducers[item - ItemPin]);
+                Hub.TogglePin(region, _menuProducers[item - ItemPin]);
                 break;
             case >= ItemProducer when item - ItemProducer < _menuProducers.Count:
-                Hub.ToggleProducer(slot, _menuProducers[item - ItemProducer]);
+                Hub.ToggleProducer(region, _menuProducers[item - ItemProducer]);
                 break;
         }
     }

@@ -21,6 +21,7 @@ The hub is the single owner of the USB LCDs. WinUSB is exclusive and HID frames 
   - Pipe threads store frames (validated against the panel size) and post `WM_APP_REFRESH`.
   - Writes to a producer go through its outbox (`Producer.Send`, a writer thread each), never straight to the pipe: a producer that doesn't read would block the gate's holder.
   - The UI thread does everything else: the 1 s `Tick` (device sync + refresh), feeds and settings.
+  - A panel's `layout` cuts it into regions (`Layout.Carve`). Each region rotates on its own and producers see each one as a panel; `Compose` stitches them together.
 - `Rotation.cs`: a pure `Pick` function holding all the rules (display off → blank, locked → Today, alerts, toasts, pin, feed, rotation, per-app turns). It is tested; keep the rules there.
 - `Panel/`: the device side.
   - `LcdPanel`: the device drivers, JPEG and keepalive.

@@ -155,6 +155,28 @@ Check(bad.Problems.Count == 4 && bad.RotateSeconds == HubSettings.DefaultRotateS
 HubSettings.Parse("{ nope", out unreadable);
 Check(unreadable, "unparsable JSON is flagged, so Load keeps a copy");
 
+// ---- layout ----
+List<RegionSettings> Strips(params (string Name, string Edge, int Size)[] s) =>
+    s.Select(x => new RegionSettings { Region = x.Name, Edge = x.Edge, Size = x.Size }).ToList();
+Check(Layout.Carve("p", 1920, 462, [], out _) is [{ Id: "p", X: 0, Y: 0, Width: 1920, Height: 462 }], "no layout → the whole panel");
+var carved = Layout.Carve("p", 1920, 462, Strips(("side", "left", 480)), out var skipped);
+Check(carved is [{ Id: "p", X: 480, Width: 1440, Height: 462 }, { Id: "p/side", X: 0, Width: 480, Height: 462 }] && skipped.Count == 0,
+    "a left strip; what is left keeps the panel's id");
+carved = Layout.Carve("p", 1280, 480, Strips(("side", "right", 400), ("strip", "bottom", 40)), out _);
+Check(carved is [{ Id: "p", X: 0, Y: 0, Width: 880, Height: 440 }, { Id: "p/side", X: 880, Y: 0, Width: 400, Height: 480 },
+          { Id: "p/strip", X: 0, Y: 440, Width: 880, Height: 40 }], "strips are cut in order from what is left");
+carved = Layout.Carve("p", 1280, 480, Strips(("top", "top", 100), ("big", "left", 1250)), out skipped);
+Check(carved is [{ Id: "p", Y: 100, Height: 380, Width: 1280 }, { Id: "p/top" }] && skipped is [{ Region: "big" }],
+    "a strip that leaves under MinSize is skipped");
+var layoutBad = HubSettings.Parse("""
+    { "panels": {
+        "p": { "layout": [ { "region": "a", "size": 100 }, { "region": "a", "size": 100 }, { "region": "b", "edge": "middle", "size": 100 },
+                           { "region": "c", "size": 10 }, { "size": 100 }, { "region": "d", "edge": "top", "size": 50 } ] },
+        "p/a": { "layout": [ { "region": "x", "size": 100 } ] } } }
+    """, out _);
+Check(layoutBad.Problems.Count == 6 && layoutBad.Panels["p"].Layout is [{ Region: "a" }] && layoutBad.Panels["p/a"].Layout.Count == 0,
+    "bad layout entries and a region's layout are reported and dropped");
+
 // Every settings property is in the schema an editor validates against, and nothing else.
 var schemaPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "settings.schema.json"));
 var schema = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(schemaPath))!;
@@ -165,7 +187,8 @@ static string[] Keys(Type t) => t.GetProperties()
 static string[] SchemaKeys(System.Text.Json.Nodes.JsonNode node) => node["properties"]!.AsObject().Select(p => p.Key).Order().ToArray();
 var props = schema["properties"]!;
 foreach (var (node, type) in new[] { (schema, typeof(HubSettings)), (props["today"]!, typeof(TodaySettings)), (props["style"]!, typeof(StyleSettings)),
-             (props["launch"]!["items"]!, typeof(LaunchSettings)), (props["panels"]!["additionalProperties"]!, typeof(PanelSettings)) })
+             (props["launch"]!["items"]!, typeof(LaunchSettings)), (props["panels"]!["additionalProperties"]!, typeof(PanelSettings)),
+             (props["panels"]!["additionalProperties"]!["properties"]!["layout"]!["items"]!, typeof(RegionSettings)) })
     Check(SchemaKeys(node).SequenceEqual(Keys(type)), $"settings.schema.json matches {type.Name}");
 
 Console.WriteLine("All checks passed.");

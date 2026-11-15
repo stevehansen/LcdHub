@@ -6,6 +6,8 @@
 |---|---|---|
 | **Panel** | One plugged-in USB LCD that the hub drives | screen, display, device, LCD, monitor |
 | **Panel id** | A panel's stable identity across replugs and restarts (`0416:5302`, `0416:5408:<serial>`) | device path, handle |
+| **Region** | A part of a panel with its own rotation: what is left of the panel (its panel id) or a strip its **Layout** cuts off (`<panel id>/<name>`). Producers see each region as a panel | area, zone, pane, split |
+| **Layout** | A panel's list of strips cut off its edges, in order, in settings | split, grid |
 | **Wire** | The USB protocol family a panel speaks (HID or LY bulk) | driver, transport |
 | **Link** | An open, handshaken connection to a panel over its wire | connection, session |
 | **Keepalive** | Resending the current picture every second so the panel's firmware doesn't fall back to its own screen | refresh, heartbeat |

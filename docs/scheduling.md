@@ -15,19 +15,23 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 
 ## Core entities & relationships
 
-`Hub -> PanelSlot (Panel, Feed?, Pick, LastSent)` and `Hub -> Producer -> Frame per panel id`
+`Hub -> PanelSlot (Panel, Takeover) -> Region (Feed?, Pick, LastSent, Pixels)` and `Hub -> Producer -> Frame per region id`
 
 - **`Hub`** (static): the panel slots, the producers and the takeover flags, all under one gate.
-- **`PanelSlot`**: a plugged-in panel plus what is on it. `Pick` is the rotation's decision, and
-  `LastSent` is what was last presented, so an unchanged picture goes out once.
+- **`PanelSlot`**: a plugged-in panel, cut into **Regions** by its layout (`Layout.Carve`, pure
+  and tested). `Takeover` is what a takeover last put on the whole panel.
+- **`Region`**: a part of a panel with a rotation of its own; a panel without a layout is one
+  region with the panel's id. Producers are told regions as panels. `Pick` is the rotation's
+  decision, `LastSent` what was last drawn there, so an unchanged picture is drawn once, and
+  `Pixels` that picture, for `Compose` to put the panel together.
 - **`Producer` / `Frame`**: a connected app and its newest picture per panel. Frames are compared
   by reference, so each new frame is a new object.
 - **`Rotation.Pick`**: a pure function from (offers, Today in rotation, has feed, locked, display
   off, current pick, time shown, interval) to the next pick.
 - **`LcdFeed`** (`VideoFeed`, `WindowFeed`): a moving picture made on its own thread at the
-  panel's size, which replaces the rotation.
-- **`HubSettings` / `PanelSettings`**: the rotation interval and the hub-wide `TodaySettings`, plus per Panel id the Today toggle,
-  hidden producers, the pinned producer and the saved video path.
+  region's size, which replaces that region's rotation.
+- **`HubSettings` / `PanelSettings`**: the rotation interval and the hub-wide `TodaySettings`, plus per panel or region id the Today toggle,
+  hidden producers, the pinned producer and the saved video path, and per panel its layout.
 
 ## Invariants & rules
 
@@ -36,7 +40,12 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   special-case a pick in `Hub` or the menu. Owned by `Rotation.cs`.
 - **A takeover beats everything.** While locked, no producer frame and no feed frame reaches a
   panel. Display off sends black rather than stopping, because a panel left alone lights up its
-  own logo.
+  own logo. A takeover fills the whole panel, whatever its layout (`PanelSlot.Takeover`); the
+  regions are drawn again when it ends.
+- **Each region rotates on its own.** `Rotation.Pick` runs per region with that region's settings,
+  so pins, Today, toasts and alerts are region-local; an alert never spreads to the rest of the
+  panel. `Compose` stitches the regions' pictures into one panel frame, and hands a lone region
+  that covers the panel straight through, uncopied.
 - **Today is the floor.** With nothing to rotate, the pool is Today, so a panel never
   falls back to the vendor logo while the hub runs.
 - **An alert lasts until the producer sends a non-alert frame** for that panel, withdraws its
@@ -64,8 +73,10 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 - **Pipe threads only store frames and post `WM_APP_REFRESH`.** Panels, feeds and settings change
   on the UI thread. Refresh posts are coalesced through `_refreshPosted`.
 - **Panel list changes drop that panel's frames.** Producers learn of the change and redraw (see
-  [producer-protocol](producer-protocol.md)).
-- **Settings are keyed by Panel id and by producer name.** A mirrored window isn't saved, since
+  [producer-protocol](producer-protocol.md)). A layout changed by Reload settings counts as one:
+  that panel's regions are dropped and carved again (`DropRegions`, `CarveRegions`), then
+  `AnnouncePanels`.
+- **Settings are keyed by panel or region id and by producer name.** A mirrored window isn't saved, since
   it can't be found again. A video that ended with an error is forgotten. Owned by
   `Settings.cs` and `Hub.SetFeed`.
 
@@ -74,6 +85,7 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 | File | Role |
 |---|---|
 | `Rotation.cs` | `Pick`: every rule about what shows |
+| `Layout.cs` | `Carve`: a panel's layout → regions |
 | `Hub.cs` | Slots, producers, `Refresh`, `SyncPanels`, feeds, menu commands |
 | `Settings.cs` | `%APPDATA%\LcdHub\settings.json` via `SettingsJsonContext` |
 | `Panel/LcdFeed.cs` | `LcdFeed` base (pause, ended), `LcdCanvas` scaling, `WindowFeed` |
@@ -91,8 +103,10 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   refresh from the weather thread.
 - **Duplicate producer names get a ` (2)` suffix,** and a suffixed name is a different key in
   `Hidden`.
-- **The menu can outlive its slot.** `HandleCommand` rechecks `Hub.Slots.Contains`, because the
-  video file dialog pumps messages.
+- **The menu can outlive its region.** `HandleCommand` rechecks `Hub.Regions.Contains`, because the
+  video file dialog pumps messages, and a reload may carve the panel again.
+- **A feed in a split panel composes every frame,** a new panel-sized array each time, since
+  `Present` keeps the array it's given.
 - **`ReapEndedFeeds` runs on `WM_APP_FEED_ENDED`.** A feed's `ended` fires on the feed thread,
   which mustn't touch the slots.
 
@@ -100,7 +114,7 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 
 `Tests/Program.cs`, the `Rotation.Pick` checks: rotation order and interval, wrap-around, 
 Today's turn, a departed producer, alerts pre-empting and rotating, alert over feed, pins, locked →
-Today, display off → blank. Run `dotnet run --project Tests/LcdHub.Tests.csproj`.
+Today, display off → blank; and the `Layout.Carve` checks and layout settings problems. Run `dotnet run --project Tests/LcdHub.Tests.csproj`.
 
 ## Links
 
