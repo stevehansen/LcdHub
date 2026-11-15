@@ -68,7 +68,7 @@
                 "edge": { "enum": ["left", "right", "top", "bottom"], "default": "left", "description": "The edge of what is left that it's cut from." },
                 "size": { "type": "integer", "minimum": 16, "description": "Its width (left, right) or height (top, bottom) in pixels: at least 64, or 16 for a status strip. At least 64 pixels must be left over." },
                 "kind": { "enum": ["rotation", "status"], "default": "rotation", "description": "rotation: a region with its own rotation, seen by apps as a panel. status: a strip the hub draws with every app's status items (and the time); apps don't see it." },
-                "clock": { "type": "boolean", "default": true, "description": "A status strip starts with the time." }
+                "show": { "type": "array", "items": { "enum": ["time", "items", "date", "weather", "apps"] }, "default": ["time", "items", "date", "weather", "apps"], "description": "What a status strip shows, in order: time (starts every page), items (the apps' status items), date, weather (temperature and sky), apps (the connected apps, dimmed)." }
               },
               "if": { "properties": { "kind": { "const": "status" } }, "required": ["kind"] },
               "else": { "properties": { "size": { "minimum": 64 } } }

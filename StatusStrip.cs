@@ -4,14 +4,21 @@ using LcdHub.Client;
 namespace LcdHub;
 
 /// <summary>
-/// Draws a status strip: the time (optional), then every producer's status items, each a mark in
-/// its colour and its text. Items flow left to right and wrap, so the same drawing serves a thin
-/// bar and a tall sidebar; what doesn't fit goes on further pages, which the hub turns every
-/// rotate_seconds. The time starts every page.
+/// Draws a status strip: the time (optional), then its lines: producers' status items (a mark in
+/// their colour and their text) and the hub's own (date, weather, connected producers). Lines
+/// flow left to right and wrap, so the same drawing serves a thin bar and a tall sidebar; what
+/// doesn't fit goes on further pages, which the hub turns every rotate_seconds. The time starts
+/// every page.
 /// </summary>
 internal static class StatusStrip
 {
-    public readonly record struct Line(string Text, uint Color);
+    public const string Time = "time", Items = "items", Date = "date", Weather = "weather", Apps = "apps";
+    /// <summary>What a strip can show (<c>show</c> in settings), in the default order: the less important to the right.</summary>
+    public static readonly string[] Parts = [Time, Items, Date, Weather, Apps];
+
+    /// <param name="Mark">The colour of the mark before it; none without.</param>
+    /// <param name="Color">Its text colour; the style's text colour without.</param>
+    public readonly record struct Line(string Text, uint? Mark = null, uint? Color = null);
 
     public static uint LevelColor(LcdHubStatusLevel level, LcdHubStyle style) => level switch
     {
@@ -47,7 +54,8 @@ internal static class StatusStrip
             var indent = time is null ? 0 : Measure(dc, time) + gap;
             NativeMethods.SelectObject(dc, regular);
             // A cell is the mark, a mark's width of space, and the text.
-            var widths = items.Select(i => Math.Min(lineWidth, 3 * mark + Measure(dc, i.Text))).ToList();
+            int Lead(Line i) => i.Mark is null ? 0 : 3 * mark;
+            var widths = items.Select(i => Math.Min(lineWidth, Lead(i) + Measure(dc, i.Text))).ToList();
             var flowed = Flow(widths, lineWidth, linesPerPage, indent, gap);
             count = flowed.Count;
             var lines = flowed[page % count];
@@ -64,8 +72,9 @@ internal static class StatusStrip
                 var (x, y) = (pad + (l == 0 ? indent : 0), top + l * lineHeight);
                 foreach (var i in lines[l])
                 {
-                    dots.Add((x + mark, y + lineHeight / 2, items[i].Color));
-                    Text(dc, items[i].Text, x + 3 * mark, y, Math.Min(x + widths[i], pad + lineWidth), lineHeight);
+                    if (items[i].Mark is { } dot) dots.Add((x + mark, y + lineHeight / 2, dot));
+                    NativeMethods.SetTextColor(dc, Bgr(items[i].Color ?? style.Text));
+                    Text(dc, items[i].Text, x + Lead(items[i]), y, Math.Min(x + widths[i], pad + lineWidth), lineHeight);
                     x += widths[i] + gap;
                 }
             }

@@ -39,8 +39,8 @@ internal sealed class RegionSettings
     [JsonPropertyName("size")] public int Size { get; set; }
     /// <summary><see cref="LcdHub.Layout.Rotation"/>, or <see cref="LcdHub.Layout.Status"/> for a status strip the hub draws.</summary>
     [JsonPropertyName("kind")] public string Kind { get; set; } = LcdHub.Layout.Rotation;
-    /// <summary>A status strip starts with the time.</summary>
-    [JsonPropertyName("clock")] public bool Clock { get; set; } = true;
+    /// <summary>What a status strip shows, in order (<see cref="StatusStrip.Parts"/>); the time, when listed, starts every page.</summary>
+    [JsonPropertyName("show")] public List<string> Show { get; set; } = [.. StatusStrip.Parts];
 }
 
 /// <summary>What Today shows, the same on every panel.</summary>
@@ -190,7 +190,15 @@ internal sealed class HubSettings
                     : !Layout.Kinds.Contains(r.Kind) ? $"{where}.kind = \"{r.Kind}\""
                     : r.Size < (r.Kind == Layout.Status ? Layout.MinStatusSize : Layout.MinSize) ? $"{where}.size = {r.Size}"
                     : null;
-                if (bad is null) continue;
+                if (bad is null)
+                {
+                    foreach (var part in r.Show.Where(p => !StatusStrip.Parts.Contains(p)).ToList())
+                    {
+                        Problems.Add($"{Strings.SettingsBadValue}: {where}.show \"{part}\"");
+                        r.Show.Remove(part);
+                    }
+                    continue;
+                }
                 Problems.Add($"{Strings.SettingsBadValue}: {bad}");
                 panel.Layout.RemoveAt(i--);
             }

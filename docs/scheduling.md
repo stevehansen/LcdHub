@@ -58,8 +58,10 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   regardless. Regions start on the same producer and share `rotate_seconds`, so without this
   they would run in lockstep.
 - **Status strips are the same everywhere.** Every status strip shows all producers' status
-  items, worst level first, then by producer name and key. A strip is drawn once per
-  `StatusKey` (items version `_statusVersion`, minute with a clock, page, style); pages turn every
+  items, worst level first, then by producer name and key, among the hub's own lines (time,
+  date, weather, connected producers) in its `show` order. A strip is drawn once per
+  `StatusKey` (`_statusVersion`, bumped by items and by producers connecting or leaving; the
+  minute with the time or date; the weather if shown; page; style); pages turn every
   `rotate_seconds`, and the time starts every page. A takeover covers status strips too.
 - **Today is the floor.** With nothing to rotate, the pool is Today, so a panel never
   falls back to the vendor logo while the hub runs.

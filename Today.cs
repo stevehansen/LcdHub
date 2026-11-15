@@ -91,7 +91,7 @@ internal static unsafe class Today
     }
 
     // WMO weather interpretation codes, as Open-Meteo documents them.
-    private static string Describe(int code) => code switch
+    internal static string Describe(int code) => code switch
     {
         0 => Strings.WeatherClear,
         1 or 2 => Strings.WeatherPartlyCloudy,

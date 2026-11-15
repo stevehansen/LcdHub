@@ -107,7 +107,7 @@ Each entry cuts a strip off one edge of what is left of the panel, in order:
 | `edge` | `"left"` | `left`, `right`, `top` or `bottom` of what is left. |
 | `size` | required | Its width (left, right) or height (top, bottom) in pixels, at least 64 (16 for a status strip). |
 | `kind` | `"rotation"` | `rotation`: a region with its own rotation. `status`: a status strip (below). |
-| `clock` | `true` | A status strip starts with the time. |
+| `show` | all, in order | What a status strip shows, in order (below). |
 
 What is left keeps the panel's id, so the panel's own `today`, `hidden`, `pinned` and
 `video_path` apply to it. Each strip is set up under its own entry, `"<panel id>/<region>"`,
@@ -127,12 +127,22 @@ once: apps redraw for the new sizes and videos restart; a mirrored window stops.
 }
 ```
 
-A **status strip** (`"kind": "status"`) has no rotation: the hub draws it with the time, then every
-app's status items (short lines such as "Fable 7d 100% → Mon 09:00"), worst first. Items flow
-left to right and wrap; what doesn't fit is paged every `rotate_seconds`. Every status strip on
-every panel shows the same items. Apps don't see it as a panel, so it has no entry of its own
-under `panels`.
+A **status strip** (`"kind": "status"`) has no rotation: the hub draws what its `show` list
+names, in that order:
+
+| Entry | Shows |
+|---|---|
+| `time` | The time. It starts every page, wherever it is in the list. |
+| `items` | Every app's status items (short lines such as "Fable 7d 100% → Mon 09:00"), worst first. |
+| `date` | The day and date, e.g. "Sun 15 Nov". |
+| `weather` | The temperature and sky at `today.weather_location`, once known. |
+| `apps` | The connected apps' names, dimmed: what is running. |
+
+The default is all of them, in the order above, so the less important end up on the right.
+Everything flows left to right and wraps; what doesn't fit is paged every `rotate_seconds`.
+Every status strip on every panel shows the same items. Apps don't see it as a panel, so it has
+no entry of its own under `panels`.
 
 ```json
-"layout": [ { "region": "strip", "edge": "bottom", "size": 40, "kind": "status" } ]
+"layout": [ { "region": "strip", "edge": "bottom", "size": 40, "kind": "status", "show": ["time", "items", "weather"] } ]
 ```

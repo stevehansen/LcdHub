@@ -8,7 +8,7 @@
 | **Panel id** | A panel's stable identity across replugs and restarts (`0416:5302`, `0416:5408:<serial>`) | device path, handle |
 | **Region** | A part of a panel with its own rotation: what is left of the panel (its panel id) or a strip its **Layout** cuts off (`<panel id>/<name>`). Producers see each region as a panel | area, zone, pane, split |
 | **Layout** | A panel's list of strips cut off its edges, in order, in settings | split, grid |
-| **Status strip** | A strip of a layout (`kind: "status"`) that the hub draws with the time and every **Status item**; not a region producers see | status bar, ticker, footer |
+| **Status strip** | A strip of a layout (`kind: "status"`) that the hub draws with every **Status item** and, as its `show` list says, the time, date, weather and connected producers; not a region producers see | status bar, ticker, footer |
 | **Wire** | The USB protocol family a panel speaks (HID or LY bulk) | driver, transport |
 | **Link** | An open, handshaken connection to a panel over its wire | connection, session |
 | **Keepalive** | Resending the current picture every second so the panel's firmware doesn't fall back to its own screen | refresh, heartbeat |

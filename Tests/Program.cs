@@ -192,6 +192,9 @@ var statusLayout = HubSettings.Parse("""
     """, out _);
 Check(statusLayout.Problems.Count == 2 && statusLayout.Panels["p"].Layout is [{ Region: "s", Kind: Layout.Status }],
     "a status strip may be thin, a rotating one may not; an unknown kind is dropped");
+Check(statusLayout.Panels["p"].Layout[0].Show.SequenceEqual(StatusStrip.Parts), "a status strip shows everything by default");
+var showBad = HubSettings.Parse("""{ "panels": { "p": { "layout": [ { "region": "s", "size": 30, "kind": "status", "show": ["apps", "clock", "time"] } ] } } }""", out _);
+Check(showBad.Problems.Count == 1 && showBad.Panels["p"].Layout[0].Show is ["apps", "time"], "an unknown show entry is reported and dropped, the order kept");
 carved = Layout.Carve("p", 1280, 480, statusLayout.Panels["p"].Layout, out _);
 Check(carved is [{ Id: "p", Height: 450, Status: false }, { Id: "p/s", Y: 450, Height: 30, Status: true }], "a status strip is carved like any strip");
 

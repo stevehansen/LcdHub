@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using LcdHub.Client;
 
 namespace LcdHub;
@@ -59,8 +60,8 @@ internal sealed class Frame(uint[] pixels, bool alert, bool toast = false, long 
 /// <param name="ExpiresAt">Environment.TickCount64 when the hub drops it, or 0 for never.</param>
 internal sealed record StatusItem(string Text, LcdHubStatusLevel Level, uint? Color, long ExpiresAt);
 
-/// <summary>What a status strip looks like: redrawn when the items, the minute (with a clock), the page or the style change.</summary>
-internal readonly record struct StatusKey(int Version, string? Minute, int Page, LcdHubStyle Style);
+/// <summary>What a status strip looks like: redrawn when the items or producers, the minute and weather (if shown), the page or the style change.</summary>
+internal readonly record struct StatusKey(int Version, string? Minute, Weather? Weather, int Page, LcdHubStyle Style);
 
 /// <summary>What Today looks like: redrawn when the minute, the weather or the options change.</summary>
 internal readonly record struct TodayKey(string Minute, Weather? Weather, int Version);
@@ -176,6 +177,7 @@ internal static class Hub
             for (int i = 2; _producers.Exists(p => p.Name == unique); i++) unique = $"{name} ({i})";
             var producer = new Producer(unique, send);
             _producers.Add(producer);
+            _statusVersion++; // status strips list the producers
             // Under the gate, so it can't overtake a newer list broadcast by SyncPanels.
             producer.Send(LcdHubWire.Panels(PanelListLocked()));
             producer.Send(LcdHubWire.Style(_style));
@@ -189,7 +191,7 @@ internal static class Hub
         lock (_gate)
         {
             _producers.Remove(producer);
-            if (producer.Statuses.Count > 0) _statusVersion++;
+            _statusVersion++;
         }
         producer.Close();
         Diagnose.Log($"hub: {producer.Name} disconnected");
@@ -238,14 +240,39 @@ internal static class Hub
         PostRefresh();
     }
 
-    /// <summary>Every producer's status items, worst level first, then by producer and key. Under the gate.</summary>
-    private static List<StatusStrip.Line> StatusLinesLocked() =>
-        _producers.SelectMany(p => p.Statuses.Select(s => (Producer: p.Name, s.Key, Item: s.Value)))
-            .OrderByDescending(s => s.Item.Level)
-            .ThenBy(s => s.Producer, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(s => s.Key, StringComparer.Ordinal)
-            .Select(s => new StatusStrip.Line(s.Item.Text, s.Item.Color ?? StatusStrip.LevelColor(s.Item.Level, _style)))
-            .ToList();
+    /// <summary>
+    /// A status strip's lines, by its <c>show</c> list (the time aside): every producer's status
+    /// items (worst level first, then by producer and key), the date, the weather, and the
+    /// connected producers, dimmed. Under the gate.
+    /// </summary>
+    private static List<StatusStrip.Line> StatusLinesLocked(IReadOnlyList<string> show, DateTime clock, Weather? weather)
+    {
+        var culture = CultureInfo.CurrentCulture;
+        var lines = new List<StatusStrip.Line>();
+        foreach (var part in show)
+            switch (part)
+            {
+                case StatusStrip.Items:
+                    lines.AddRange(_producers.SelectMany(p => p.Statuses.Select(s => (Producer: p.Name, s.Key, Item: s.Value)))
+                        .OrderByDescending(s => s.Item.Level)
+                        .ThenBy(s => s.Producer, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(s => s.Key, StringComparer.Ordinal)
+                        .Select(s => new StatusStrip.Line(s.Item.Text, s.Item.Color ?? StatusStrip.LevelColor(s.Item.Level, _style))));
+                    break;
+                case StatusStrip.Date:
+                    lines.Add(new(clock.ToString("ddd d MMM", culture)));
+                    break;
+                case StatusStrip.Weather when weather is not null:
+                    lines.Add(new($"{weather.Temperature.ToString("0", culture)}° {Today.Describe(weather.Code)}"));
+                    break;
+                case StatusStrip.Apps:
+                    var dim = Today.Mix(_style.Text, _style.Background, 0.5);
+                    lines.AddRange(_producers.Select(p => p.Name).Order(StringComparer.OrdinalIgnoreCase)
+                        .Select(name => new StatusStrip.Line(name, Color: dim)));
+                    break;
+            }
+        return lines;
+    }
 
     /// <summary>Drops frames, toasts and status items whose lifetime has run out. Under the gate.</summary>
     private static void ExpireFrames(long now)
@@ -307,13 +334,17 @@ internal static class Hub
                     if (region.IsStatus)
                     {
                         if (takeover is not null) continue;
-                        var withClock = _settings.Panels.GetValueOrDefault(slot.Id)?.Layout.Find(e => e.Region == region.Name)?.Clock ?? true;
-                        var key = new StatusKey(_statusVersion, withClock ? today.Minute : null,
+                        var show = _settings.Panels.GetValueOrDefault(slot.Id)?.Layout.Find(e => e.Region == region.Name)?.Show
+                            ?? [.. StatusStrip.Parts];
+                        var withClock = show.Contains(StatusStrip.Time);
+                        var key = new StatusKey(_statusVersion,
+                            withClock || show.Contains(StatusStrip.Date) ? today.Minute : null,
+                            show.Contains(StatusStrip.Weather) ? today.Weather : null,
                             (int)(now / (long)interval.TotalMilliseconds % region.Pages), _style);
                         if (Equals(key, region.LastSent)) continue;
                         region.LastSent = key;
-                        if (StatusStrip.Paint(region.Width, region.Height, StatusLinesLocked(), withClock ? clock : null, _style,
-                                key.Page, out region.Pages) is not { } strip) continue;
+                        if (StatusStrip.Paint(region.Width, region.Height, StatusLinesLocked(show, clock, today.Weather),
+                                withClock ? clock : null, _style, key.Page, out region.Pages) is not { } strip) continue;
                         region.Pixels = strip;
                         changed = true;
                         continue;
@@ -620,7 +651,7 @@ internal static class Hub
         var recarved = false;
         foreach (var slot in Slots)
         {
-            // A status strip's clock isn't here: the strip reads it each time it's drawn.
+            // A status strip's show list isn't here: the strip reads it each time it's drawn.
             static IEnumerable<(string?, string, int, string)> Strips(HubSettings settings, string id) =>
                 (settings.Panels.GetValueOrDefault(id)?.Layout ?? []).Select(e => (e.Region, e.Edge, e.Size, e.Kind));
             if (!Strips(s, slot.Id).SequenceEqual(Strips(old, slot.Id)))
@@ -637,7 +668,7 @@ internal static class Hub
             {
                 if (region.IsStatus)
                 {
-                    lock (_gate) region.LastSent = null; // its clock may have changed
+                    lock (_gate) region.LastSent = null; // its show list may have changed
                     continue;
                 }
                 var video = s.Panels.GetValueOrDefault(region.Id)?.VideoPath;
