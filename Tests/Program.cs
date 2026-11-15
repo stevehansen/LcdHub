@@ -49,9 +49,11 @@ Check(P([Alert("a")], null, early, locked: true) == Rotation.Today, "locked show
 Check(P([Alert("a")], null, early, locked: true, off: true) == Blank, "display off blanks");
 Check(P([A("a"), A("b")], null, early, elsewhere: ["a"]) == "b", "a first pick skips what another region shows");
 Check(P([A("a"), A("b"), A("c")], "a", late, elsewhere: ["b"]) == "c", "the rotation skips what another region shows");
-Check(P([A("a"), A("b")], "a", late, elsewhere: ["b"]) == "b", "with nothing else left, regions swap");
+Check(P([A("a"), A("b")], "a", late, elsewhere: ["b"]) == "a", "with nothing else free, it stays rather than show something twice");
 Check(P([A("a")], "a", late, elsewhere: ["a"]) == "a", "a lone producer may show twice");
-Check(P([A("a"), A("b")], "a", early, elsewhere: ["a"]) == "a", "a turn isn't cut short by another region");
+Check(P([A("a"), A("b")], "a", early, elsewhere: ["a"]) == "b", "it leaves at once what an earlier region switched to");
+Check(P([A("a")], "a", early, elsewhere: ["a"]) == "a", "unless nothing else is free");
+Check(P([A("a"), A("b")], "a", late, elsewhere: ["a", "b"]) == "b", "with everything shown elsewhere, it keeps turning");
 Check(P([A("a"), A("b")], "b", late, today: true, elsewhere: [Rotation.Today]) == "a", "Today counts as shown elsewhere too");
 Check(P([Alert("a"), A("b")], null, early, elsewhere: ["a"]) == "a", "an alert shows even if shown elsewhere");
 Check(P([A("a"), A("b")], null, early, pin: "a", elsewhere: ["a"]) == "a", "so does a pin");

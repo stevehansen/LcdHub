@@ -46,12 +46,13 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   so pins, Today, toasts and alerts are region-local; an alert never spreads to the rest of the
   panel. `Compose` stitches the regions' pictures into one panel frame, and hands a lone region
   that covers the panel straight through, uncopied.
-- **A panel's rotations don't show the same thing twice.** When a region's turn ends (or it
-  picks for the first time), the rotation takes the next producer, or Today, that no other region
-  of the panel shows; only if every other one is shown elsewhere does it take the next anyway,
-  so two regions swap rather than stick. Alerts, toasts and a pin show regardless, and a turn
-  is never cut short by another region. Regions start on the same producer and share
-  `rotate_seconds`, so without this they would run in lockstep.
+- **A panel's rotations don't show the same thing twice.** Earlier regions win: what is left of
+  the panel rotates freely, and each strip avoids what the regions before it show (`elsewhere`,
+  picked earlier in the same refresh). A strip skips those at the end of its turn, and leaves at
+  once when an earlier region switches to what it shows, whenever something else is free; with
+  nothing else free it stays rather than show something twice. Alerts, toasts and a pin show
+  regardless. Regions start on the same producer and share `rotate_seconds`, so without this
+  they would run in lockstep.
 - **Today is the floor.** With nothing to rotate, the pool is Today, so a panel never
   falls back to the vendor logo while the hub runs.
 - **An alert lasts until the producer sends a non-alert frame** for that panel, withdraws its

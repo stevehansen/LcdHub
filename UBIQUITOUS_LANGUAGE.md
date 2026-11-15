@@ -37,7 +37,7 @@
 | **Rotation** | Cycling a panel through its pool, each entry staying for one interval | carousel, switching, template |
 | **Rotation interval** | How long one entry stays on a panel before the rotation moves on; a producer can have its own (`app_seconds`) | rotate seconds, dwell |
 | **Offer** | A producer's newest frame for a panel, counted as a rotation candidate (with its alert flag) | candidate, entry |
-| **Pool** | The offers a panel rotates among right now: the alerting ones if any, otherwise all visible ones plus Today; the rotation skips what the panel's other regions show while anything else is left | queue, playlist |
+| **Pool** | The offers a panel rotates among right now: the alerting ones if any, otherwise all visible ones plus Today; a strip's rotation avoids what the panel's earlier regions show while anything else is free | queue, playlist |
 | **Pin** | A producer kept on one panel instead of rotating ("Keep showing" in the menu). Only alerts and takeovers interrupt it, and it counts only while that producer has a frame there | focus, lock, sticky |
 | **Hidden** | A producer excluded from one panel's rotation | disabled, muted |
 | **Pick** | The rotation's decision of what a panel shows now: a producer, Today, the feed, or blank | selection, choice, current |
