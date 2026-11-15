@@ -21,8 +21,8 @@ var late = TimeSpan.FromSeconds(10);
 Offer A(string name) => new(name, false);
 Offer Alert(string name) => new(name, true);
 string P(Offer[] offers, string? current, TimeSpan shown, bool today = false, bool feed = false, bool locked = false, bool off = false,
-    string? pin = null) =>
-    Pick(offers, pin, today, feed, locked, off, current, shown, interval);
+    string? pin = null, string[]? elsewhere = null) =>
+    Pick(offers, pin, today, feed, locked, off, current, shown, interval, elsewhere: elsewhere);
 
 // ---- rotation ----
 Check(P([], null, early) == Rotation.Today, "nothing offered → Today");
@@ -47,6 +47,16 @@ Check(P([A("b"), Alert("a")], "b", early, pin: "b") == "a", "an alert overrides 
 Check(P([A("b")], null, early, locked: true, pin: "b") == Rotation.Today, "locked beats a pin");
 Check(P([Alert("a")], null, early, locked: true) == Rotation.Today, "locked shows only Today");
 Check(P([Alert("a")], null, early, locked: true, off: true) == Blank, "display off blanks");
+Check(P([A("a"), A("b")], null, early, elsewhere: ["a"]) == "b", "a first pick skips what another region shows");
+Check(P([A("a"), A("b"), A("c")], "a", late, elsewhere: ["b"]) == "c", "the rotation skips what another region shows");
+Check(P([A("a"), A("b")], "a", late, elsewhere: ["b"]) == "a", "with nothing else free, it stays rather than show something twice");
+Check(P([A("a")], "a", late, elsewhere: ["a"]) == "a", "a lone producer may show twice");
+Check(P([A("a"), A("b")], "a", early, elsewhere: ["a"]) == "b", "it leaves at once what an earlier region switched to");
+Check(P([A("a")], "a", early, elsewhere: ["a"]) == "a", "unless nothing else is free");
+Check(P([A("a"), A("b")], "a", late, elsewhere: ["a", "b"]) == "b", "with everything shown elsewhere, it keeps turning");
+Check(P([A("a"), A("b")], "b", late, today: true, elsewhere: [Rotation.Today]) == "a", "Today counts as shown elsewhere too");
+Check(P([Alert("a"), A("b")], null, early, elsewhere: ["a"]) == "a", "an alert shows even if shown elsewhere");
+Check(P([A("a"), A("b")], null, early, pin: "a", elsewhere: ["a"]) == "a", "so does a pin");
 
 // ---- wire ----
 var hello = LcdHubWire.Read(new MemoryStream(LcdHubWire.Hello("Example App")))!.Value;
@@ -155,6 +165,28 @@ Check(bad.Problems.Count == 4 && bad.RotateSeconds == HubSettings.DefaultRotateS
 HubSettings.Parse("{ nope", out unreadable);
 Check(unreadable, "unparsable JSON is flagged, so Load keeps a copy");
 
+// ---- layout ----
+List<RegionSettings> Strips(params (string Name, string Edge, int Size)[] s) =>
+    s.Select(x => new RegionSettings { Region = x.Name, Edge = x.Edge, Size = x.Size }).ToList();
+Check(Layout.Carve("p", 1920, 462, [], out _) is [{ Id: "p", X: 0, Y: 0, Width: 1920, Height: 462 }], "no layout → the whole panel");
+var carved = Layout.Carve("p", 1920, 462, Strips(("side", "left", 480)), out var skipped);
+Check(carved is [{ Id: "p", X: 480, Width: 1440, Height: 462 }, { Id: "p/side", X: 0, Width: 480, Height: 462 }] && skipped.Count == 0,
+    "a left strip; what is left keeps the panel's id");
+carved = Layout.Carve("p", 1280, 480, Strips(("side", "right", 400), ("strip", "bottom", 40)), out _);
+Check(carved is [{ Id: "p", X: 0, Y: 0, Width: 880, Height: 440 }, { Id: "p/side", X: 880, Y: 0, Width: 400, Height: 480 },
+          { Id: "p/strip", X: 0, Y: 440, Width: 880, Height: 40 }], "strips are cut in order from what is left");
+carved = Layout.Carve("p", 1280, 480, Strips(("top", "top", 100), ("big", "left", 1250)), out skipped);
+Check(carved is [{ Id: "p", Y: 100, Height: 380, Width: 1280 }, { Id: "p/top" }] && skipped is [{ Region: "big" }],
+    "a strip that leaves under MinSize is skipped");
+var layoutBad = HubSettings.Parse("""
+    { "panels": {
+        "p": { "layout": [ { "region": "a", "size": 100 }, { "region": "a", "size": 100 }, { "region": "b", "edge": "middle", "size": 100 },
+                           { "region": "c", "size": 10 }, { "size": 100 }, { "region": "d", "edge": "top", "size": 50 } ] },
+        "p/a": { "layout": [ { "region": "x", "size": 100 } ] } } }
+    """, out _);
+Check(layoutBad.Problems.Count == 6 && layoutBad.Panels["p"].Layout is [{ Region: "a" }] && layoutBad.Panels["p/a"].Layout.Count == 0,
+    "bad layout entries and a region's layout are reported and dropped");
+
 // Every settings property is in the schema an editor validates against, and nothing else.
 var schemaPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "settings.schema.json"));
 var schema = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(schemaPath))!;
@@ -165,7 +197,8 @@ static string[] Keys(Type t) => t.GetProperties()
 static string[] SchemaKeys(System.Text.Json.Nodes.JsonNode node) => node["properties"]!.AsObject().Select(p => p.Key).Order().ToArray();
 var props = schema["properties"]!;
 foreach (var (node, type) in new[] { (schema, typeof(HubSettings)), (props["today"]!, typeof(TodaySettings)), (props["style"]!, typeof(StyleSettings)),
-             (props["launch"]!["items"]!, typeof(LaunchSettings)), (props["panels"]!["additionalProperties"]!, typeof(PanelSettings)) })
+             (props["launch"]!["items"]!, typeof(LaunchSettings)), (props["panels"]!["additionalProperties"]!, typeof(PanelSettings)),
+             (props["panels"]!["additionalProperties"]!["properties"]!["layout"]!["items"]!, typeof(RegionSettings)) })
     Check(SchemaKeys(node).SequenceEqual(Keys(type)), $"settings.schema.json matches {type.Name}");
 
 Console.WriteLine("All checks passed.");

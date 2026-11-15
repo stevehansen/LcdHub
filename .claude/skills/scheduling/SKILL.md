@@ -1,6 +1,6 @@
 ---
 name: scheduling
-description: Prime on the LcdHub scheduling domain before working on it: Hub, PanelSlot, Producer/Frame, Rotation.Pick, alerts, pins ("Keep showing"), Today (the hub's own screen and its options), takeover (locked → Today, display off → blank), feeds (VideoFeed, WindowFeed) and per-panel settings. Use when the task touches rotation, rotate interval, alert priority, hidden apps, the tray menu's panel items, video or window mirroring, lock or monitor-off behaviour, or settings.json. Not for USB/device protocol (see panels) or the pipe wire format and client (see producer-protocol).
+description: Prime on the LcdHub scheduling domain before working on it: Hub, PanelSlot, Region and layout, Producer/Frame, Rotation.Pick, alerts, pins ("Keep showing"), Today (the hub's own screen and its options), takeover (locked → Today, display off → blank), feeds (VideoFeed, WindowFeed) and per-panel settings. Use when the task touches rotation, rotate interval, alert priority, hidden apps, the tray menu's panel items, video or window mirroring, lock or monitor-off behaviour, or settings.json. Not for USB/device protocol (see panels) or the pipe wire format and client (see producer-protocol).
 ---
 
 # Scheduling domain: priming
@@ -12,7 +12,8 @@ This domain decides each panel's **Pick**: blank, Today, an alerting producer, a
 ## Core invariants (get these right)
 
 - **All pick rules live in `Rotation.Pick`.** It is pure and tested. Never special-case a pick in `Hub` or the menu.
-- **Takeover beats everything.** Locked shows Today, and display off sends black, never nothing.
+- **Picks are per region.** A panel's layout (`Layout.Carve`) cuts it into regions; each runs `Rotation.Pick` with its own settings, producers see each as a panel, and `Compose` stitches them. Earlier regions win: a strip's rotation avoids what the regions before it show (`elsewhere`) whenever something else is free; alerts, toasts and pins don't.
+- **Takeover beats everything.** Locked shows Today, and display off sends black, never nothing; it fills the whole panel, whatever its layout.
 - **Today is the floor.** A panel never falls back to the vendor logo while the hub runs.
 - **Feeds pause, not stop.** Their frames are presented under `_gate`, and only while `Pick == Rotation.Feed`.
 - **Toasts come right after alerts:** over a pin and a feed, until their lifetime ends. Frames with a lifetime expire in `Hub.ExpireFrames`.
@@ -21,7 +22,7 @@ This domain decides each panel's **Pick**: blank, Today, an alerting producer, a
 
 ## Key files
 
-- `Rotation.cs`: the rules. `Hub.cs`: state, refresh, feeds, menu commands. `Settings.cs`: per Panel id.
+- `Rotation.cs`: the rules. `Layout.cs`: regions. `Hub.cs`: state, refresh, compose, feeds, menu commands. `Settings.cs`: per panel or region id.
 - `Panel/LcdFeed.cs`, `Panel/VideoFeed.cs`: feeds.
 
 ## Gotchas

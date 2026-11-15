@@ -13,8 +13,8 @@ internal sealed unsafe class VideoFeed : LcdFeed
 {
     private readonly string _path;
 
-    public VideoFeed(string path, LcdPanel panel, Action<LcdFeed, uint[]> sink, Action ended)
-        : base(panel, sink, ended) => _path = path;
+    public VideoFeed(string path, LcdPanel panel, int width, int height, Action<LcdFeed, uint[]> sink, Action ended)
+        : base(panel, width, height, sink, ended) => _path = path;
 
     protected override void Run()
     {

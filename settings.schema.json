@@ -47,7 +47,7 @@
     },
     "panels": {
       "type": "object",
-      "description": "Per panel, by id (e.g. \"0416:5302\"); written by the panel's tray menu.",
+      "description": "Per panel, by id (e.g. \"0416:5302\"), and per region of a panel's layout (e.g. \"0416:5302/side\"); written by the tray menu.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
@@ -55,7 +55,21 @@
           "today": { "type": "boolean", "default": false, "description": "Today takes its own turn in the rotation." },
           "hidden": { "type": "array", "items": { "type": "string" }, "description": "Apps, by name, left out of this panel's rotation." },
           "pinned": { "type": ["string", "null"], "description": "An app, by name, kept on this panel instead of rotating; alerts still interrupt it." },
-          "video_path": { "type": ["string", "null"], "description": "A video playing on this panel instead of the rotation." }
+          "video_path": { "type": ["string", "null"], "description": "A video playing on this panel instead of the rotation." },
+          "layout": {
+            "type": "array",
+            "description": "Strips cut off this panel's edges, in order, each a region with its own rotation and its own entry under panels (\"<panel id>/<region>\"). What is left keeps the panel's id and settings. Only on a panel, not a region.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["region", "size"],
+              "properties": {
+                "region": { "type": "string", "pattern": "^[^/]+$", "description": "Its name, unique on the panel, e.g. \"side\"." },
+                "edge": { "enum": ["left", "right", "top", "bottom"], "default": "left", "description": "The edge of what is left that it's cut from." },
+                "size": { "type": "integer", "minimum": 64, "description": "Its width (left, right) or height (top, bottom) in pixels. At least 64 pixels must be left over." }
+              }
+            }
+          }
         }
       }
     }

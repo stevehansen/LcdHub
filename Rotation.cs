@@ -13,7 +13,9 @@ namespace LcdHub;
 /// in the rotation or there's nothing else.</item>
 /// </list>
 /// Whatever is showing stays for its whole turn (its own interval, or the shared one) unless
-/// it drops out of the pool.
+/// it drops out of the pool. A rotation also avoids what the panel's earlier regions show
+/// (<c>elsewhere</c>): it skips it, and leaves it at once when one of them switches to it,
+/// whenever something else is free. Alerts, toasts and a pin don't.
 /// </summary>
 internal static class Rotation
 {
@@ -30,8 +32,10 @@ internal static class Rotation
     /// <param name="current">What the panel shows now, or null.</param>
     /// <param name="shownFor">How long <paramref name="current"/> has been up; <see cref="TimeSpan.MaxValue"/> for "its turn is over".</param>
     /// <param name="ownIntervals">Producers, by name, whose turn isn't <paramref name="interval"/>.</param>
+    /// <param name="elsewhere">What the panel's earlier regions show now (already picked), so the rotation doesn't show it twice.</param>
     public static string Pick(IReadOnlyList<Offer> offers, string? pinned, bool todayInRotation, bool hasFeed, bool locked, bool displayOff,
-        string? current, TimeSpan shownFor, TimeSpan interval, IReadOnlyDictionary<string, TimeSpan>? ownIntervals = null)
+        string? current, TimeSpan shownFor, TimeSpan interval, IReadOnlyDictionary<string, TimeSpan>? ownIntervals = null,
+        IReadOnlyCollection<string>? elsewhere = null)
     {
         if (displayOff) return Blank;
         if (locked) return Today;
@@ -39,17 +43,37 @@ internal static class Rotation
         var pool = new List<string>();
         foreach (var o in offers) if (o.Alert) pool.Add(o.Name);
         if (pool.Count == 0) foreach (var o in offers) if (o.Toast) pool.Add(o.Name);
+        var rotating = false;
         if (pool.Count == 0)
         {
             foreach (var o in offers) if (o.Name == pinned) return pinned;
             if (hasFeed) return Feed;
             foreach (var o in offers) pool.Add(o.Name);
             if (todayInRotation || pool.Count == 0) pool.Add(Today);
+            rotating = true;
         }
 
+        var avoid = rotating && elsewhere is { Count: > 0 };
+        bool Free(string name) => !avoid || !elsewhere!.Contains(name);
         var at = current is null ? -1 : pool.IndexOf(current);
-        if (at < 0) return pool[0];
+        // The next in order after the current one (from the start, without one) that is free.
+        string? NextFree()
+        {
+            for (int k = 1; k <= pool.Count; k++)
+            {
+                var candidate = pool[(at + k) % pool.Count];
+                if (candidate == current) break;
+                if (Free(candidate)) return candidate;
+            }
+            return null;
+        }
+
+        if (at < 0) return NextFree() ?? pool[0];
         var turn = ownIntervals?.GetValueOrDefault(current!, interval) ?? interval;
-        return shownFor < turn ? current! : pool[(at + 1) % pool.Count];
+        if (Free(current!))
+            // With nothing else free, stay rather than show something twice.
+            return shownFor < turn ? current! : NextFree() ?? current!;
+        // Shown elsewhere now: move on at once if anything is free; if nothing is, keep turning.
+        return NextFree() ?? (shownFor < turn ? current! : pool[(at + 1) % pool.Count]);
     }
 }

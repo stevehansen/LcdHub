@@ -2,7 +2,7 @@ namespace LcdHub;
 
 /// <summary>
 /// A moving picture for an LCD panel — a video file, a mirrored window — made on a thread of
-/// its own, at the panel's size and no faster than it takes them. Frames go only to the sink
+/// its own, at its region's size and no faster than it takes them. Frames go only to the sink
 /// given at construction, so the owner decides whether they reach the panel (not while the
 /// session is locked, say). Pausing stops the work, not just the output. <c>ended</c> fires
 /// once, from the feed thread, when the source is gone for good; <see cref="Error"/> then says
@@ -19,9 +19,10 @@ internal abstract class LcdFeed : IDisposable
     private readonly System.Diagnostics.Stopwatch _clock = new();
     private volatile bool _hasEnded;
 
-    protected LcdFeed(LcdPanel panel, Action<LcdFeed, uint[]> sink, Action ended)
+    protected LcdFeed(LcdPanel panel, int width, int height, Action<LcdFeed, uint[]> sink, Action ended)
     {
         _panel = panel;
+        (Width, Height) = (width, height);
         _sink = sink;
         _ended = ended;
         _thread = new Thread(Main) { IsBackground = true, Name = GetType().Name };
@@ -29,9 +30,9 @@ internal abstract class LcdFeed : IDisposable
 
     public string? Error { get; protected set; }
 
-    /// <summary>The size of the frames this feed emits: its panel's.</summary>
-    protected int Width => _panel.Width;
-    protected int Height => _panel.Height;
+    /// <summary>The size of the frames this feed emits: its region's.</summary>
+    protected int Width { get; }
+    protected int Height { get; }
 
     /// <summary>
     /// The panel hasn't taken the last frame yet, so skip making the next: the 9.16" takes
@@ -207,8 +208,8 @@ internal sealed class WindowFeed : LcdFeed
 {
     private static readonly TimeSpan FrameInterval = TimeSpan.FromMilliseconds(1000.0 / 30);
 
-    public WindowFeed(IntPtr hwnd, LcdPanel panel, Action<LcdFeed, uint[]> sink, Action ended)
-        : base(panel, sink, ended) => Hwnd = hwnd;
+    public WindowFeed(IntPtr hwnd, LcdPanel panel, int width, int height, Action<LcdFeed, uint[]> sink, Action ended)
+        : base(panel, width, height, sink, ended) => Hwnd = hwnd;
 
     public IntPtr Hwnd { get; }
 

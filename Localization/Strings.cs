@@ -39,6 +39,11 @@ internal static class Strings
     public const string SettingsUnknownKey = "Unknown setting";
     public const string SettingsBadValue = "Invalid value";
     public const string SettingsMissingFile = "Launch: file not found";
+    public const string SettingsLayoutOnRegion = "only a panel has a layout, not a region";
+    public const string SettingsLayoutTooBig = "Layout: no room for region";
+
+    // A panel cut into regions (layout), in the menu.
+    public const string MainRegion = "main";
 
     // The look producers are asked to share.
     public const string Style = "Appearance";

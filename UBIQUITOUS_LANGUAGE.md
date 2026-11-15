@@ -6,6 +6,8 @@
 |---|---|---|
 | **Panel** | One plugged-in USB LCD that the hub drives | screen, display, device, LCD, monitor |
 | **Panel id** | A panel's stable identity across replugs and restarts (`0416:5302`, `0416:5408:<serial>`) | device path, handle |
+| **Region** | A part of a panel with its own rotation: what is left of the panel (its panel id) or a strip its **Layout** cuts off (`<panel id>/<name>`). Producers see each region as a panel | area, zone, pane, split |
+| **Layout** | A panel's list of strips cut off its edges, in order, in settings | split, grid |
 | **Wire** | The USB protocol family a panel speaks (HID or LY bulk) | driver, transport |
 | **Link** | An open, handshaken connection to a panel over its wire | connection, session |
 | **Keepalive** | Resending the current picture every second so the panel's firmware doesn't fall back to its own screen | refresh, heartbeat |
@@ -35,7 +37,7 @@
 | **Rotation** | Cycling a panel through its pool, each entry staying for one interval | carousel, switching, template |
 | **Rotation interval** | How long one entry stays on a panel before the rotation moves on; a producer can have its own (`app_seconds`) | rotate seconds, dwell |
 | **Offer** | A producer's newest frame for a panel, counted as a rotation candidate (with its alert flag) | candidate, entry |
-| **Pool** | The offers a panel rotates among right now: the alerting ones if any, otherwise all visible ones plus Today | queue, playlist |
+| **Pool** | The offers a panel rotates among right now: the alerting ones if any, otherwise all visible ones plus Today; a strip's rotation avoids what the panel's earlier regions show while anything else is free | queue, playlist |
 | **Pin** | A producer kept on one panel instead of rotating ("Keep showing" in the menu). Only alerts and takeovers interrupt it, and it counts only while that producer has a frame there | focus, lock, sticky |
 | **Hidden** | A producer excluded from one panel's rotation | disabled, muted |
 | **Pick** | The rotation's decision of what a panel shows now: a producer, Today, the feed, or blank | selection, choice, current |

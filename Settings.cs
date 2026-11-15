@@ -20,6 +20,23 @@ internal sealed class PanelSettings
 
     /// <summary>A video playing instead of the rotation. A mirrored window isn't saved: it can't be found again.</summary>
     [JsonPropertyName("video_path")] public string? VideoPath { get; set; }
+
+    /// <summary>Strips cut off this panel's edges, in order, each a region with settings of its own (<see cref="Layout"/>).</summary>
+    [JsonPropertyName("layout")] public List<RegionSettings> Layout { get; set; } = new();
+}
+
+/// <summary>One strip of a panel's layout. Its settings are under panels."&lt;panel id&gt;/&lt;region&gt;".</summary>
+internal sealed class RegionSettings
+{
+    /// <summary>Keys this version doesn't know (typos, mostly): reported, and kept on save.</summary>
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; set; }
+
+    /// <summary>Its name, unique on the panel; the region's id is the panel's id, a slash and this.</summary>
+    [JsonPropertyName("region")] public string? Region { get; set; }
+    /// <summary>Which edge of what is left it's cut from: <see cref="LcdHub.Layout.Edges"/>.</summary>
+    [JsonPropertyName("edge")] public string Edge { get; set; } = "left";
+    /// <summary>Its width (left, right) or height (top, bottom) in pixels.</summary>
+    [JsonPropertyName("size")] public int Size { get; set; }
 }
 
 /// <summary>What Today shows, the same on every panel.</summary>
@@ -150,7 +167,29 @@ internal sealed class HubSettings
         Report("", Unknown);
         Report("today.", Today.Unknown);
         Report("style.", Style.Unknown);
-        foreach (var (id, panel) in Panels) Report($"panels.{id}.", panel.Unknown);
+        foreach (var (id, panel) in Panels)
+        {
+            Report($"panels.{id}.", panel.Unknown);
+            if (panel.Layout.Count > 0 && id.Contains('/'))
+            {
+                Problems.Add($"{Strings.SettingsBadValue}: panels.{id}.layout ({Strings.SettingsLayoutOnRegion})");
+                panel.Layout.Clear();
+            }
+            var names = new HashSet<string>();
+            for (int i = 0; i < panel.Layout.Count; i++)
+            {
+                var r = panel.Layout[i];
+                var where = $"panels.{id}.layout[{i}]";
+                Report(where + ".", r.Unknown);
+                string? bad = string.IsNullOrWhiteSpace(r.Region) || r.Region.Contains('/') || !names.Add(r.Region) ? $"{where}.region"
+                    : !Layout.Edges.Contains(r.Edge) ? $"{where}.edge = \"{r.Edge}\""
+                    : r.Size < Layout.MinSize ? $"{where}.size = {r.Size}"
+                    : null;
+                if (bad is null) continue;
+                Problems.Add($"{Strings.SettingsBadValue}: {bad}");
+                panel.Layout.RemoveAt(i--);
+            }
+        }
         if (RotateSeconds < 1)
         {
             Problems.Add($"{Strings.SettingsBadValue}: rotate_seconds = {RotateSeconds}");
