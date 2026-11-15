@@ -254,6 +254,8 @@ public static class Win32Consts
     public const uint DT_VCENTER = 0x4;
     public const uint DT_SINGLELINE = 0x20;
     public const uint DT_NOPREFIX = 0x800;
+    public const uint DT_CALCRECT = 0x400;
+    public const uint DT_END_ELLIPSIS = 0x8000;
 
     // Tray
     public const uint NIF_ICON = 0x02;

@@ -8,6 +8,7 @@
 | **Panel id** | A panel's stable identity across replugs and restarts (`0416:5302`, `0416:5408:<serial>`) | device path, handle |
 | **Region** | A part of a panel with its own rotation: what is left of the panel (its panel id) or a strip its **Layout** cuts off (`<panel id>/<name>`). Producers see each region as a panel | area, zone, pane, split |
 | **Layout** | A panel's list of strips cut off its edges, in order, in settings | split, grid |
+| **Status strip** | A strip of a layout (`kind: "status"`) that the hub draws with every **Status item** and, as its `show` list says, the time, date, weather and connected producers; not a region producers see | status bar, ticker, footer |
 | **Wire** | The USB protocol family a panel speaks (HID or LY bulk) | driver, transport |
 | **Link** | An open, handshaken connection to a panel over its wire | connection, session |
 | **Keepalive** | Resending the current picture every second so the panel's firmware doesn't fall back to its own screen | refresh, heartbeat |
@@ -24,6 +25,7 @@
 | **Alert** | A flag on a frame asking the hub to show it ahead of the rotation | priority, urgent, focus |
 | **Toast** | A frame shown at once over the rotation, a pin and a feed (not an alert) for a set time, then gone; the producer's ordinary frame stays | notification, popup, flash |
 | **Lifetime** | How long the hub keeps a frame before dropping it as if withdrawn (`validFor`, or a toast's duration) | TTL, timeout, expiry |
+| **Status item** | A short line of text a producer keeps, under its own key and with a level (info, warn, bad), in every **Status strip** until it withdraws it, its lifetime ends or it disconnects | status, badge, notification |
 | **Withdraw** | Sending an empty frame: the producer has nothing for that panel until its next frame (`Clear`) | hide, remove |
 | **Launched producer** | A producer the hub starts with itself and restarts when it exits (`launch` in settings) | plugin, service, child |
 | **Style** | The dark or light look and colours the hub asks every producer to draw in | theme, palette, skin |

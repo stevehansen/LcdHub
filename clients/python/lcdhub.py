@@ -18,14 +18,17 @@ from __future__ import annotations
 import ctypes
 import msvcrt
 import struct
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
 PIPE = r"\\.\pipe\LcdHub"
-VERSION = 3
-MSG_HELLO, MSG_PANELS, MSG_FRAME, MSG_STYLE, MSG_VISIBILITY = 1, 2, 3, 4, 5
+VERSION = 4
+MSG_HELLO, MSG_PANELS, MSG_FRAME, MSG_STYLE, MSG_VISIBILITY, MSG_STATUS = 1, 2, 3, 4, 5, 6
 FLAG_ALERT, FLAG_TOAST, FLAG_LIFETIME = 1, 2, 4
+STATUS_COLOR, STATUS_LIFETIME = 1, 2
 HIDDEN, NEXT, SHOWN = 0, 1, 2
+INFO, WARN, BAD = 0, 1, 2
 
 _peek = ctypes.windll.kernel32.PeekNamedPipe
 _peek.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p,
@@ -58,6 +61,8 @@ class LcdHub:
         self._visibility: dict[str, int] = {}
         self._pipe = None
         self._buffer = b""
+        # Status items by key, sent again on every connect: (text, level, color, expires_at or 0).
+        self._statuses: dict[str, tuple[str, int, int | None, float]] = {}
 
     @property
     def connected(self) -> bool:
@@ -103,6 +108,20 @@ class LcdHub:
         """Takes your frame off a panel until you send again."""
         self._frame(panel_id, b"", False, False, 0)
 
+    def set_status(self, key: str, text: str, level: int = INFO, valid_for: float = 0,
+                   color: int | None = None) -> None:
+        """Puts a short line in the hub's status strips until it's set again under ``key``,
+        cleared, ``valid_for`` seconds pass, or you disconnect. May be set while disconnected;
+        it's sent again on every connect. ``color`` (0xRRGGBB) replaces the level's colour."""
+        if text:
+            self._statuses[key] = (text, level, color, time.monotonic() + valid_for if valid_for > 0 else 0)
+        else:
+            self._statuses.pop(key, None)
+        self._status(key)
+
+    def clear_status(self, key: str) -> None:
+        self.set_status(key, "")
+
     def close(self) -> None:
         self._drop()
 
@@ -112,6 +131,8 @@ class LcdHub:
         try:
             self._pipe = open(PIPE, "r+b", buffering=0)
             self._write(MSG_HELLO, struct.pack("<H", VERSION) + _pack_str(self.name))
+            for key in list(self._statuses):
+                self._status(key)
             return True
         except OSError:
             self._pipe = None
@@ -137,6 +158,25 @@ class LcdHub:
         body = _pack_str(panel_id) + bytes([flags]) + (struct.pack("<I", ms) if ms else b"") + pixels
         try:
             self._write(MSG_FRAME, body)
+        except OSError:
+            self._drop()
+
+    def _status(self, key: str) -> None:
+        if self._pipe is None:
+            return  # kept, and sent on connect
+        text, level, color, expires_at = self._statuses.get(key, ("", INFO, None, 0))
+        ms = 0
+        if expires_at:
+            ms = int((expires_at - time.monotonic()) * 1000)
+            if ms <= 0:
+                del self._statuses[key]
+                text, color, ms = "", None, 0
+        flags = (STATUS_COLOR if color is not None else 0) | (STATUS_LIFETIME if ms else 0)
+        body = (_pack_str(key) + _pack_str(text) + bytes([level, flags])
+                + (struct.pack("<I", color) if color is not None else b"")
+                + (struct.pack("<I", min(ms, 0xFFFFFFFF)) if ms else b""))
+        try:
+            self._write(MSG_STATUS, body)
         except OSError:
             self._drop()
 

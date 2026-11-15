@@ -24,6 +24,10 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   region with the panel's id. Producers are told regions as panels. `Pick` is the rotation's
   decision, `LastSent` what was last drawn there, so an unchanged picture is drawn once, and
   `Pixels` that picture, for `Compose` to put the panel together.
+- **Status strip**: a region whose layout entry has `kind: "status"` (`Region.IsStatus`). It has no
+  pick and no feed and isn't announced to producers; `StatusStrip.Paint` draws the time and every
+  producer's **status items** (`Producer.Statuses`), and `StatusStrip.Flow` (pure, tested) wraps
+  them into lines and pages.
 - **`Producer` / `Frame`**: a connected app and its newest picture per panel. Frames are compared
   by reference, so each new frame is a new object.
 - **`Rotation.Pick`**: a pure function from (offers, Today in rotation, has feed, locked, display
@@ -53,6 +57,12 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
   nothing else free it stays rather than show something twice. Alerts, toasts and a pin show
   regardless. Regions start on the same producer and share `rotate_seconds`, so without this
   they would run in lockstep.
+- **Status strips are the same everywhere.** Every status strip shows all producers' status
+  items, worst level first, then by producer name and key, among the hub's own lines (time,
+  date, weather, connected producers) in its `show` order. A strip is drawn once per
+  `StatusKey` (`_statusVersion`, bumped by items and by producers connecting or leaving; the
+  minute with the time or date; the weather if shown; page; style); pages turn every
+  `rotate_seconds`, and the time starts every page. A takeover covers status strips too.
 - **Today is the floor.** With nothing to rotate, the pool is Today, so a panel never
   falls back to the vendor logo while the hub runs.
 - **An alert lasts until the producer sends a non-alert frame** for that panel, withdraws its
@@ -93,6 +103,7 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 |---|---|
 | `Rotation.cs` | `Pick`: every rule about what shows |
 | `Layout.cs` | `Carve`: a panel's layout → regions |
+| `StatusStrip.cs` | `Paint` and `Flow`: a status strip's picture and its lines and pages |
 | `Hub.cs` | Slots, producers, `Refresh`, `SyncPanels`, feeds, menu commands |
 | `Settings.cs` | `%APPDATA%\LcdHub\settings.json` via `SettingsJsonContext` |
 | `Panel/LcdFeed.cs` | `LcdFeed` base (pause, ended), `LcdCanvas` scaling, `WindowFeed` |
@@ -121,7 +132,8 @@ parse the pipe (see [producer-protocol](producer-protocol.md)).
 
 `Tests/Program.cs`, the `Rotation.Pick` checks: rotation order and interval, wrap-around, 
 Today's turn, a departed producer, alerts pre-empting and rotating, alert over feed, pins, locked →
-Today, display off → blank, skipping what other regions show; and the `Layout.Carve` checks and layout settings problems. Run `dotnet run --project Tests/LcdHub.Tests.csproj`.
+Today, display off → blank, skipping what other regions show; the `Layout.Carve` checks and layout settings problems;
+and the `StatusStrip.Flow` checks. Run `dotnet run --project Tests/LcdHub.Tests.csproj`.
 
 ## Links
 

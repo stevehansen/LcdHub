@@ -186,6 +186,34 @@ var layoutBad = HubSettings.Parse("""
     """, out _);
 Check(layoutBad.Problems.Count == 6 && layoutBad.Panels["p"].Layout is [{ Region: "a" }] && layoutBad.Panels["p/a"].Layout.Count == 0,
     "bad layout entries and a region's layout are reported and dropped");
+var statusLayout = HubSettings.Parse("""
+    { "panels": { "p": { "layout": [ { "region": "s", "edge": "bottom", "size": 30, "kind": "status" },
+                                     { "region": "t", "size": 30 }, { "region": "u", "size": 100, "kind": "ticker" } ] } } }
+    """, out _);
+Check(statusLayout.Problems.Count == 2 && statusLayout.Panels["p"].Layout is [{ Region: "s", Kind: Layout.Status }],
+    "a status strip may be thin, a rotating one may not; an unknown kind is dropped");
+Check(statusLayout.Panels["p"].Layout[0].Show.SequenceEqual(StatusStrip.Parts), "a status strip shows everything by default");
+var showBad = HubSettings.Parse("""{ "panels": { "p": { "layout": [ { "region": "s", "size": 30, "kind": "status", "show": ["apps", "clock", "time"] } ] } } }""", out _);
+Check(showBad.Problems.Count == 1 && showBad.Panels["p"].Layout[0].Show is ["apps", "time"], "an unknown show entry is reported and dropped, the order kept");
+carved = Layout.Carve("p", 1280, 480, statusLayout.Panels["p"].Layout, out _);
+Check(carved is [{ Id: "p", Height: 450, Status: false }, { Id: "p/s", Y: 450, Height: 30, Status: true }], "a status strip is carved like any strip");
+
+// ---- status strip ----
+var status = LcdHubWire.ParseStatus(LcdHubWire.Read(new MemoryStream(LcdHubWire.Status("k", "Fable 7d 100%", LcdHubStatusLevel.Bad, 0x123456, 9000)))!.Value.Body);
+Check(status == new LcdHubWire.StatusMessage("k", "Fable 7d 100%", LcdHubStatusLevel.Bad, 0x123456, 9000), "a status item round-trips");
+status = LcdHubWire.ParseStatus(LcdHubWire.Read(new MemoryStream(LcdHubWire.Status("k", "", LcdHubStatusLevel.Info)))!.Value.Body);
+Check(status is { Text: "", Color: null, LifetimeMs: 0 }, "a withdrawal has no colour or lifetime");
+// The hub's pipe thread catches ArgumentOutOfRangeException, ending only that producer.
+Check(Throws<ArgumentOutOfRangeException>(() => LcdHubWire.ParseStatus(new byte[4])), "a status without its level throws what the pipe thread catches");
+var flowed = StatusStrip.Flow([30, 30, 30], 100, 1, 0, 10);
+Check(flowed is [[[0, 1]], [[2]]], "items that don't fit a line go on the next page");
+flowed = StatusStrip.Flow([30, 30, 30], 100, 2, 50, 10);
+Check(flowed is [[[0], [1, 2]]], "the time takes the start of the first line");
+flowed = StatusStrip.Flow([80], 100, 2, 50, 10);
+Check(flowed is [[[], [0]]], "an item too wide beside the time goes under it");
+flowed = StatusStrip.Flow([80, 80], 100, 1, 50, 10);
+Check(flowed is [[[0]], [[1]]], "or, with one line, beside it, cut short");
+Check(StatusStrip.Flow([], 100, 1, 50, 10) is [[[]]], "no items: one page, the time alone");
 
 // Every settings property is in the schema an editor validates against, and nothing else.
 var schemaPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "settings.schema.json"));

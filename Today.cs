@@ -91,7 +91,7 @@ internal static unsafe class Today
     }
 
     // WMO weather interpretation codes, as Open-Meteo documents them.
-    private static string Describe(int code) => code switch
+    internal static string Describe(int code) => code switch
     {
         0 => Strings.WeatherClear,
         1 or 2 => Strings.WeatherPartlyCloudy,
@@ -134,7 +134,7 @@ internal static unsafe class Today
     }
 
     /// <summary>An antialiased disc.</summary>
-    private static void Disc(Span<uint> px, int w, int h, double cx, double cy, double r, uint color, double alpha)
+    internal static void Disc(Span<uint> px, int w, int h, double cx, double cy, double r, uint color, double alpha)
     {
         for (int row = Math.Max(0, (int)(cy - r - 1)); row <= Math.Min(h - 1, (int)(cy + r + 1)); row++)
             for (int col = Math.Max(0, (int)(cx - r - 1)); col <= Math.Min(w - 1, (int)(cx + r + 1)); col++)
@@ -197,7 +197,7 @@ internal static unsafe class Today
         Disc(px, w, h, sx, sy, 5 * s, color, 1);
     }
 
-    private static uint Mix(uint a, uint b, double t)
+    internal static uint Mix(uint a, uint b, double t)
     {
         uint C(int shift) => (uint)Math.Round((a >> shift & 0xFF) * (1 - t) + (b >> shift & 0xFF) * t) << shift;
         return C(16) | C(8) | C(0);

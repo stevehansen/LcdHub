@@ -13,6 +13,7 @@ This domain decides each panel's **Pick**: blank, Today, an alerting producer, a
 
 - **All pick rules live in `Rotation.Pick`.** It is pure and tested. Never special-case a pick in `Hub` or the menu.
 - **Picks are per region.** A panel's layout (`Layout.Carve`) cuts it into regions; each runs `Rotation.Pick` with its own settings, producers see each as a panel, and `Compose` stitches them. Earlier regions win: a strip's rotation avoids what the regions before it show (`elsewhere`) whenever something else is free; alerts, toasts and pins don't.
+- **Status strips have no pick.** A `kind: "status"` layout strip (`Region.IsStatus`) is drawn by `StatusStrip` from every producer's status items plus the hub's own lines (its `show` list), the same on every panel; it isn't announced to producers and takes no frames or feeds.
 - **Takeover beats everything.** Locked shows Today, and display off sends black, never nothing; it fills the whole panel, whatever its layout.
 - **Today is the floor.** A panel never falls back to the vendor logo while the hub runs.
 - **Feeds pause, not stop.** Their frames are presented under `_gate`, and only while `Pick == Rotation.Feed`.
@@ -22,7 +23,7 @@ This domain decides each panel's **Pick**: blank, Today, an alerting producer, a
 
 ## Key files
 
-- `Rotation.cs`: the rules. `Layout.cs`: regions. `Hub.cs`: state, refresh, compose, feeds, menu commands. `Settings.cs`: per panel or region id.
+- `Rotation.cs`: the rules. `Layout.cs`: regions. `StatusStrip.cs`: status strips. `Hub.cs`: state, refresh, compose, feeds, menu commands. `Settings.cs`: per panel or region id.
 - `Panel/LcdFeed.cs`, `Panel/VideoFeed.cs`: feeds.
 
 ## Gotchas
