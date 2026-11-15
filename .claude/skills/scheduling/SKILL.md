@@ -12,7 +12,7 @@ This domain decides each panel's **Pick**: blank, Today, an alerting producer, a
 ## Core invariants (get these right)
 
 - **All pick rules live in `Rotation.Pick`.** It is pure and tested. Never special-case a pick in `Hub` or the menu.
-- **Picks are per region.** A panel's layout (`Layout.Carve`) cuts it into regions; each runs `Rotation.Pick` with its own settings, producers see each as a panel, and `Compose` stitches them. A rotation skips what the panel's other regions show (`elsewhere`), unless nothing else is left; alerts, toasts and pins don't.
+- **Picks are per region.** A panel's layout (`Layout.Carve`) cuts it into regions; each runs `Rotation.Pick` with its own settings, producers see each as a panel, and `Compose` stitches them. Earlier regions win: a strip's rotation avoids what the regions before it show (`elsewhere`) whenever something else is free; alerts, toasts and pins don't.
 - **Status strips have no pick.** A `kind: "status"` layout strip (`Region.IsStatus`) is drawn by `StatusStrip` from every producer's status items, the same on every panel; it isn't announced to producers and takes no frames or feeds.
 - **Takeover beats everything.** Locked shows Today, and display off sends black, never nothing; it fills the whole panel, whatever its layout.
 - **Today is the floor.** A panel never falls back to the vendor logo while the hub runs.
