@@ -63,14 +63,18 @@ that belongs to [scheduling](scheduling.md).
   replies before its handshake.
 - **The LY bulk endpoint varies.** At least one unit takes `0x09` where trcc-linux uses `0x01`, so
   the link queries the pipes rather than hard-coding the endpoint.
-- **Orientation comes from the device.** The 9.16" reports a sub-model in its handshake reply, and
+- **LY size comes from the handshake.** The 9.16" (PM 65/66, 1920×462) and the 11" (PM 69,
+  1920×440) share `0416:5408`, so `FindDevices` handshakes each new LY path once and caches its
+  size (`LySize`). A failed probe (TRCC holding it, unknown PM) is retried after 5 s.
+- **Orientation comes from the device.** The LY panels report a sub-model in its handshake reply, and
   TRCC sends turned 180° for all but a few of them. Don't flip pictures anywhere else.
 - **The panel can't be screenshotted.** Use `--diagnose` and look at
   `%TEMP%\lcd-hub-lcd-<w>x<h>.jpg`.
 
 ## Adding a device
 
-Add its USB id and size to `FindDevices`. If it speaks a new protocol, add a `LcdWire` value and a
+Add its USB id and size to `FindDevices`; a new LY model only needs its PM in `LyLink.Connect`'s
+size switch. If it speaks a new protocol, add a `LcdWire` value and a
 `Link` subclass. Protocol notes:
 [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux).
 
