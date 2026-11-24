@@ -233,9 +233,14 @@ internal sealed class HubSettings
             if (string.IsNullOrWhiteSpace(Launch[i].Path)) Problems.Add($"{Strings.SettingsBadValue}: launch[{i}].path");
             else if (!File.Exists(Environment.ExpandEnvironmentVariables(Launch[i].Path!)))
                 Problems.Add($"{Strings.SettingsMissingFile}: {Launch[i].Path}");
-            foreach (var name in Launch[i].Tiresias ?? [])
-                if (string.IsNullOrEmpty(name) || name.Any(c => char.IsWhiteSpace(c) || c is ',' or '=' or '"'))
-                    Problems.Add($"{Strings.SettingsBadValue}: launch[{i}].tiresias \"{name}\"");
+            // Dropped, not just reported: these would break tir run's --only list or command line.
+            var where = $"launch[{i}].tiresias";
+            Launch[i].Tiresias?.RemoveAll(name =>
+            {
+                var bad = string.IsNullOrEmpty(name) || name.Any(c => char.IsWhiteSpace(c) || c is ',' or '=' or '"');
+                if (bad) Problems.Add($"{Strings.SettingsBadValue}: {where} \"{name}\"");
+                return bad;
+            });
         }
     }
 

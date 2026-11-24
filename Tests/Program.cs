@@ -162,6 +162,9 @@ Check(System.Text.Json.JsonSerializer.Serialize(typo, SettingsJsonContext.Defaul
     "unknown keys survive a save");
 var bad = HubSettings.Parse("""{ "rotate_seconds": 0, "style": { "mode": "dim", "accent": "blue" }, "launch": [ {} ] }""", out _);
 Check(bad.Problems.Count == 4 && bad.RotateSeconds == HubSettings.DefaultRotateSeconds, "bad values are reported, and repaired where needed");
+var sealedNames = HubSettings.Parse("""{ "launch": [ { "path": "C:\\nope.exe", "tiresias": ["PHARE_API_KEY", "A B", "", "X,Y"] } ] }""", out _);
+Check(sealedNames.Problems.Count(p => p.Contains("tiresias")) == 3 && sealedNames.Launch[0].Tiresias is ["PHARE_API_KEY"],
+    "bad tiresias names are reported and dropped, so they never reach tir run");
 HubSettings.Parse("{ nope", out unreadable);
 Check(unreadable, "unparsable JSON is flagged, so Load keeps a copy");
 
