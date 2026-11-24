@@ -82,21 +82,26 @@ internal sealed class LcdPanel : IDisposable
     }
 
     /// <summary>
-    /// Each LY path's size, from its handshake: the 9.16" and the 11" share a USB id. A path that
-    /// couldn't be asked (TRCC holding it, a model we don't know) is asked again after ReconnectMs.
+    /// Each LY path's size, from a handshake on a pool thread: the 9.16" and the 11" share a USB
+    /// id, and a handshake can take a second, too long for the caller's thread. The path counts as
+    /// absent until its probe has answered. One that couldn't be asked (TRCC holding it, a model
+    /// we don't know) is asked again ReconnectMs after it started.
     /// </summary>
-    private static readonly Dictionary<string, (int Width, int Height, long RetryAt)> LyProbes = new();
+    private static readonly Dictionary<string, (Task<(int Width, int Height)?> Size, long RetryAt)> LyProbes = new();
 
     private static (int Width, int Height)? LySize(string path)
     {
         lock (LyProbes)
         {
-            if (!LyProbes.TryGetValue(path, out var probe) || (probe.Width == 0 && Environment.TickCount64 >= probe.RetryAt))
-            {
-                using var link = LyLink.Connect(path);
-                LyProbes[path] = probe = link is null ? (0, 0, Environment.TickCount64 + ReconnectMs) : (link.Width, link.Height, 0);
-            }
-            return probe.Width == 0 ? null : (probe.Width, probe.Height);
+            if (!LyProbes.TryGetValue(path, out var probe)
+                || (probe.Size.IsCompleted && !(probe.Size.IsCompletedSuccessfully && probe.Size.Result is not null)
+                    && Environment.TickCount64 >= probe.RetryAt))
+                LyProbes[path] = probe = (Task.Run<(int, int)?>(() =>
+                {
+                    using var link = LyLink.Connect(path);
+                    return link is null ? null : (link.Width, link.Height);
+                }), Environment.TickCount64 + ReconnectMs);
+            return probe.Size.IsCompletedSuccessfully ? probe.Size.Result : null;
         }
     }
 

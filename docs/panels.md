@@ -64,8 +64,9 @@ that belongs to [scheduling](scheduling.md).
 - **The LY bulk endpoint varies.** At least one unit takes `0x09` where trcc-linux uses `0x01`, so
   the link queries the pipes rather than hard-coding the endpoint.
 - **LY size comes from the handshake.** The 9.16" (PM 65/66, 1920×462) and the 11" (PM 69,
-  1920×440) share `0416:5408`, so `FindDevices` handshakes each new LY path once and caches its
-  size (`LySize`). A failed probe (TRCC holding it, unknown PM) is retried after 5 s.
+  1920×440) share `0416:5408`, so `FindDevices` handshakes each new LY path once, on a pool
+  thread, and caches its size (`LySize`). The panel shows up on the next tick after the probe
+  answers. A failed probe (TRCC holding it, unknown PM) is retried after 5 s.
 - **Orientation comes from the device.** The LY panels report a sub-model in its handshake reply, and
   TRCC sends turned 180° for all but a few of them. Don't flip pictures anywhere else.
 - **The panel can't be screenshotted.** Use `--diagnose` and look at
