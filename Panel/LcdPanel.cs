@@ -17,8 +17,9 @@ internal sealed record LcdDevice(string Path, string Id, int Width, int Height, 
 /// stays in here. Protocols per github.com/Lexonight1/thermalright-trcc-linux:
 /// <list type="bullet">
 /// <item>0416:5302 Trofeo Vision LCD, 1280×480, HID reports ("type 2", hid_lcd.py).</item>
-/// <item>0416:5408 Trofeo Vision 9.16", 1920×462, USB bulk through the WinUSB driver Windows
-/// binds from the panel's own descriptors ("LY", ly_lcd.py).</item>
+/// <item>0416:5408 Trofeo Vision 9.16", 1920×462, and the 11", 1920×440, USB bulk through the
+/// WinUSB driver Windows binds from the panel's own descriptors ("LY", ly_lcd.py). They share the
+/// USB id, so the size comes from the handshake.</item>
 /// </list>
 /// Both firmwares drop back to their own screen ~2–3 s after the last frame, so a background
 /// thread resends the latest frame every second whether or not it changed.
@@ -73,10 +74,35 @@ internal sealed class LcdPanel : IDisposable
         {
             // \\?\USB#VID_0416&PID_5408#<serial>#{interface}
             var parts = path.Split('#');
-            if (parts.Length > 2 && parts[1].Equals("vid_0416&pid_5408", StringComparison.OrdinalIgnoreCase))
-                found.Add(new LcdDevice(path, "0416:5408:" + parts[2], 1920, 462, LcdWire.Ly));
+            if (parts.Length > 2 && parts[1].Equals("vid_0416&pid_5408", StringComparison.OrdinalIgnoreCase)
+                && LySize(path) is var (width, height))
+                found.Add(new LcdDevice(path, "0416:5408:" + parts[2], width, height, LcdWire.Ly));
         }
         return found;
+    }
+
+    /// <summary>
+    /// Each LY path's size, from a handshake on a pool thread: the 9.16" and the 11" share a USB
+    /// id, and a handshake can take a second, too long for the caller's thread. The path counts as
+    /// absent until its probe has answered. One that couldn't be asked (TRCC holding it, a model
+    /// we don't know) is asked again ReconnectMs after it started.
+    /// </summary>
+    private static readonly Dictionary<string, (Task<(int Width, int Height)?> Size, long RetryAt)> LyProbes = new();
+
+    private static (int Width, int Height)? LySize(string path)
+    {
+        lock (LyProbes)
+        {
+            if (!LyProbes.TryGetValue(path, out var probe)
+                || (probe.Size.IsCompleted && !(probe.Size.IsCompletedSuccessfully && probe.Size.Result is not null)
+                    && Environment.TickCount64 >= probe.RetryAt))
+                LyProbes[path] = probe = (Task.Run<(int, int)?>(() =>
+                {
+                    using var link = LyLink.Connect(path);
+                    return link is null ? null : (link.Width, link.Height);
+                }), Environment.TickCount64 + ReconnectMs);
+            return probe.Size.IsCompletedSuccessfully ? probe.Size.Result : null;
+        }
     }
 
     /// <summary>
@@ -489,20 +515,25 @@ internal sealed class LcdPanel : IDisposable
                 link.Dispose();
                 return null;
             }
-            // PM = 64 + resp[20], with ≤ 3 read as 1; 65 and 66 are 1920×462. SUB = resp[22] + 1.
+            // PM = 64 + resp[20], with ≤ 3 read as 1. SUB = resp[22] + 1.
             var pm = 64 + (resp[20] <= 3 ? 1 : resp[20]);
             var sub = resp[22] + 1;
-            if (pm is not (65 or 66))
+            (int, int)? size = pm switch { 65 or 66 => (1920, 462), 69 => (1920, 440), _ => null };
+            if (size is not var (width, height))
             {
                 Diagnose.Log($"lcd: unsupported panel PM={pm} SUB={sub}");
                 link.Dispose();
                 return null;
             }
-            Diagnose.Log($"lcd: connected PM={pm} SUB={sub} out=0x{outPipe:X2}");
-            // TRCC sends 1920×462 turned 180° except at SUB 2–4.
+            Diagnose.Log($"lcd: connected PM={pm} SUB={sub} {width}x{height} out=0x{outPipe:X2}");
+            (link.Width, link.Height) = (width, height);
+            // TRCC sends both sizes turned 180° except at SUB 2–4.
             link.UpsideDown = sub is not (2 or 3 or 4);
             return link;
         }
+
+        public int Width { get; private set; }
+        public int Height { get; private set; }
 
         /// <summary>
         /// Reads off replies nobody collected. The firmware accepts nothing more until its last

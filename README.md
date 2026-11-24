@@ -46,8 +46,10 @@ flowchart LR
 |---|---|---|---|
 | Thermalright Trofeo Vision LCD | `0416:5302` | 1280×480 | HID reports |
 | Thermalright Trofeo Vision 9.16" | `0416:5408` | 1920×462 | USB bulk (WinUSB) |
+| Thermalright 11" | `0416:5408` | 1920×440 | USB bulk (WinUSB) |
 
-Both panels show JPEG frames and drop back to their logo a few seconds after the last one.
+The 9.16" and the 11" share a USB id; the hub tells them apart by their handshake reply.
+All panels show JPEG frames and drop back to their logo a few seconds after the last one.
 The hub therefore resends the current picture every second. The device protocols come from
 [thermalright-trcc-linux](https://github.com/Lexonight1/thermalright-trcc-linux).
 
