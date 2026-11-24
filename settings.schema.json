@@ -41,7 +41,8 @@
         "required": ["path"],
         "properties": {
           "path": { "type": "string", "description": "The app's own exe (not dotnet run). Environment variables like %USERPROFILE% are expanded. An exe already running is left alone until it exits." },
-          "args": { "type": ["string", "null"], "description": "Command-line arguments." }
+          "args": { "type": ["string", "null"], "description": "Command-line arguments." },
+          "tiresias": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Variables sealed in Tiresias that the app needs (e.g. [\"PHARE_API_KEY\"]). The app is then started through tir run --only, after you approve it in Tiresias." }
         }
       }
     },

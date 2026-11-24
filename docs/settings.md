@@ -76,13 +76,21 @@ Apps the hub starts with itself. Each entry has:
 |---|---|
 | `path` | The app's own `.exe` (not `dotnet run`). Environment variables like `%USERPROFILE%` are expanded. |
 | `args` | Command-line arguments, optional. |
+| `tiresias` | Variables sealed in Tiresias (`tir`) that the app needs, such as `["PHARE_API_KEY"]`, optional. The app is then started through `tir run --only …`, so only it gets them, each time after you approve it in Tiresias. |
 
 An app that exits is started again after 5 seconds. If it keeps exiting within a minute, the
 wait doubles each time, up to 5 minutes. The apps close when the hub does, even if the hub
 crashes. An exe that is already running (for example from its own *Start with Windows*) is
-left alone and only started once it has exited. Apps inherit the hub's environment, so set
-keys such as `PHARE_API_KEY` as user environment variables. On a reload, new entries start and
-the apps of removed entries are closed; unchanged ones keep running.
+left alone and only started once it has exited. Apps inherit the hub's environment; keys such
+as `PHARE_API_KEY` are better sealed in Tiresias and listed under `tiresias` than set as user
+environment variables. On a reload, new entries start and the apps of removed entries are
+closed; unchanged ones keep running, and a changed `tiresias` list counts as a new entry.
+
+```json
+"launch": [
+  { "path": "%USERPROFILE%\\Tools\\LcdHub\\Uptime\\Uptime.exe", "tiresias": ["PHARE_API_KEY"] }
+]
+```
 
 ### `panels`
 
