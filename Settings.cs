@@ -82,6 +82,11 @@ internal sealed class LaunchSettings
     /// <summary>The app's own exe; environment variables like %USERPROFILE% are expanded.</summary>
     [JsonPropertyName("path")] public string? Path { get; set; }
     [JsonPropertyName("args")] public string? Args { get; set; }
+    /// <summary>
+    /// Variables sealed in Tiresias that the app needs: it is then started through
+    /// <c>tir run --only</c>, so it alone gets them, after the user approves.
+    /// </summary>
+    [JsonPropertyName("tiresias")] public List<string>? Tiresias { get; set; }
 }
 
 internal sealed class HubSettings
@@ -228,6 +233,9 @@ internal sealed class HubSettings
             if (string.IsNullOrWhiteSpace(Launch[i].Path)) Problems.Add($"{Strings.SettingsBadValue}: launch[{i}].path");
             else if (!File.Exists(Environment.ExpandEnvironmentVariables(Launch[i].Path!)))
                 Problems.Add($"{Strings.SettingsMissingFile}: {Launch[i].Path}");
+            foreach (var name in Launch[i].Tiresias ?? [])
+                if (string.IsNullOrEmpty(name) || name.Any(c => char.IsWhiteSpace(c) || c is ',' or '=' or '"'))
+                    Problems.Add($"{Strings.SettingsBadValue}: launch[{i}].tiresias \"{name}\"");
         }
     }
 

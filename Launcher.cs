@@ -8,7 +8,7 @@ namespace LcdHub;
 /// started again, sooner after a long run than after a quick crash. They live in a job object
 /// that closes with the hub, so they go with it, even when the hub is killed. An app already
 /// running from the same exe (started by its own Run key, say) is left alone and only started
-/// once it has gone.
+/// once it has gone. An app needing variables sealed in Tiresias is started through tir run.
 /// </summary>
 internal static class Launcher
 {
@@ -27,7 +27,8 @@ internal static class Launcher
     {
         var wanted = new Dictionary<string, LaunchSettings>(StringComparer.OrdinalIgnoreCase);
         foreach (var app in apps)
-            if (!string.IsNullOrWhiteSpace(app.Path)) wanted.TryAdd($"{Environment.ExpandEnvironmentVariables(app.Path)}\0{app.Args}", app);
+            if (!string.IsNullOrWhiteSpace(app.Path))
+                wanted.TryAdd($"{Environment.ExpandEnvironmentVariables(app.Path)}\0{app.Args}\0{Sealed(app)}", app);
         foreach (var key in _kept.Keys.Where(k => !wanted.ContainsKey(k)).ToList())
         {
             _kept[key].Cancel();
@@ -59,12 +60,14 @@ internal static class Launcher
                 var started = Stopwatch.StartNew();
                 try
                 {
-                    using var process = Process.Start(new ProcessStartInfo(path, app.Args ?? "")
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        WorkingDirectory = System.IO.Path.GetDirectoryName(path) ?? "",
-                    })!;
+                    // Through tir, the app alone gets its sealed variables; killing tir's tree ends it too.
+                    var start = Sealed(app) is { Length: > 0 } names
+                        ? new ProcessStartInfo("tir", $"run --only {names} -- \"{path}\" {app.Args}")
+                        : new ProcessStartInfo(path, app.Args ?? "");
+                    start.UseShellExecute = false;
+                    start.CreateNoWindow = true;
+                    start.WorkingDirectory = System.IO.Path.GetDirectoryName(path) ?? "";
+                    using var process = Process.Start(start)!;
                     if (_job != IntPtr.Zero) NativeMethods.AssignProcessToJobObject(_job, process.Handle);
                     Diagnose.Log($"launch: started {name} ({process.Id})");
                     try { await process.WaitForExitAsync(stop); }
@@ -86,6 +89,9 @@ internal static class Launcher
         }
         catch (OperationCanceledException) { }
     }
+
+    /// <summary>The app's Tiresias variables as tir run's --only list; empty for none.</summary>
+    private static string Sealed(LaunchSettings app) => string.Join(',', app.Tiresias ?? []);
 
     private static bool RunningElsewhere(string path)
     {
